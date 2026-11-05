@@ -19,6 +19,8 @@ export interface Utterance {
     voice?: string;
     /** 谁要说的（bili / live / napcat / user），给桌宠/舞台区分语气 */
     source: string;
+    /** 服务端已合成音频时的可访问地址（/dsh-tts/audio/xxx.mp3）；没有则浏览器自己念 */
+    audioUrl?: string;
     createdAt: number;
 }
 export interface PendingResult {
@@ -43,4 +45,6 @@ export declare class UtteranceQueue {
         dropped: number;
     };
     clear(): void;
+    /** 撤掉刚入队的那条（"只合成不入队"的场景用） */
+    removeLast(): void;
 }

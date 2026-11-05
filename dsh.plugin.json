@@ -1,17 +1,19 @@
-{
-  "id": "dsh-tts",
-  "version": "0.1.0",
-  "main": "./lib/index.js",
-  "description": "Text-to-speech for DeepSeek Harness: a provider registry (browser speechSynthesis first, ComfyUI later), a speak tool, and a pending-utterance queue that pet/live plugins can consume.",
-  "engines": {
-    "dsh": ">=0.2.1-0 <0.3.0-0"
-  },
-  "contributes": {
-    "tools": [
-      "tts_speak",
-      "tts_status",
-      "tts_clear"
-    ],
-    "skills": []
-  }
+﻿{
+    "id":  "dsh-tts",
+    "version":  "0.3.0",
+    "main":  "./lib/index.js",
+    "description":  "Text-to-speech for DeepSeek Harness: swappable engines (Edge TTS free by default, Volcengine Ark doubao-seed-tts-2.0), voice dropdowns from measured lists, an audio queue for pet/live plugins, and QQ voice via dsh-napcat.",
+    "engines":  {
+                    "dsh":  "\u003e=0.2.1-0 \u003c0.3.0-0"
+                },
+    "contributes":  {
+                        "tools":  [
+                                      "tts_speak",
+                                      "tts_status",
+                                      "tts_clear"
+                                  ],
+                        "skills":  [
+
+                                   ]
+                    }
 }

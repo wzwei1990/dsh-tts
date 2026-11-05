@@ -31,6 +31,8 @@ export interface SpeakResult {
   utterance: Utterance
   /** server 侧才有：音频文件 URL */
   audioUrl?: string
+  /** server 侧才有：音频文件绝对路径（QQ 语音等本地消费用） */
+  audioPath?: string
   /** 给调用方看的一句话 */
   note: string
 }

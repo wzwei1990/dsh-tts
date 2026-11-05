@@ -1,10 +1,9 @@
 /**
  * dsh-tts 浏览器半边（手写客户端模块，免构建）。
  *
- * 两件事：
- *   1. 设置页「语音（TTS）」段：引擎/音量/语速/音色/队列
- *   2. **播放器**：轮询 /dsh-tts/api/pending，用 speechSynthesis 把话念出来
- *      （桌宠、直播舞台以后都从这里拿"她正在说什么"）
+ * 职责：
+ *   1. 设置页「语音（TTS）」：引擎二选一（Edge / 火山方舟）、音色下拉、试听
+ *   2. 播放器：轮询 /dsh-tts/api/pending，用 <audio> 播放服务端合成的音频
  *
  * ⚠️ 整段包在 IIFE 里：客户端模块共享全局作用域，顶层声明会和别的插件撞名。
  */
@@ -21,39 +20,88 @@
       const react = require('react')
       const NS = 'dsh-tts'
       const POLL_MS = 1200
+      const CUSTOM = '__custom__'
 
-      const FIELDS = [
-        { section: '引擎' },
-        {
-          key: 'provider',
-          label: '语音引擎',
-          kind: 'select',
-          options: [['browser', '浏览器朗读（零依赖，先用它）'], ['comfyui', 'ComfyUI 音色（要配工作流）']],
-          hint: '浏览器朗读不占显存、不需要装东西；ComfyUI 音色更接近"她的声音"，但要先配好工作流。',
-        },
-        { key: 'enabled', label: '允许模型主动朗读（tts_speak）', kind: 'boolean' },
-        { key: 'maxChars', label: '单条最长字符数（超出截断）', kind: 'number', hint: '默认 300，防止一口气念太长' },
-        { key: 'queueSize', label: '待播队列长度上限', kind: 'number', hint: '默认 10，满了丢最旧的' },
+      /** 静态兜底（真正列表从 /dsh-tts/api/voices 拉） */
+      const FALLBACK = {
+        edge: [
+          ['zh-CN-XiaoxiaoNeural', '晓晓 · 女声（最常用）'],
+          ['zh-CN-XiaoyiNeural', '晓伊 · 女声'],
+          ['zh-CN-YunxiNeural', '云希 · 男声（年轻）'],
+          ['zh-CN-YunyangNeural', '云扬 · 男声（播报）'],
+          ['zh-CN-YunjianNeural', '云健 · 男声（体育）'],
+          ['zh-CN-YunxiaNeural', '云夏 · 男声（少年）'],
+          ['ja-JP-NanamiNeural', 'ナナミ · 女声（日语）'],
+          ['en-US-AriaNeural', 'Aria · 女声（英语）'],
+        ],
+        volc: [
+          ['zh_female_vv_uranus_bigtts', 'Vivi 2.0 · 女声（主打）'],
+          ['zh_female_xiaohe_uranus_bigtts', '小何 2.0 · 女声（主打）'],
+          ['zh_male_m191_uranus_bigtts', '云舟 2.0 · 男声（主打）'],
+          ['zh_male_taocheng_uranus_bigtts', '小天 2.0 · 男声（主打）'],
+          ['zh_female_gaolengyujie_uranus_bigtts', '高冷御姐 2.0 · 女声'],
+          ['zh_female_tianmeitaozi_uranus_bigtts', '甜美桃子 2.0 · 女声'],
+        ],
+      }
 
-        { section: '声音' },
-        { key: 'language', label: '语言（浏览器引擎）', kind: 'text', placeholder: 'zh-CN' },
-        { key: 'voice', label: '音色名（留空=按语言自动挑）', kind: 'text', placeholder: '如 Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)' },
-        { key: 'volume', label: '音量 0~1', kind: 'number', hint: '默认 1' },
-        { key: 'rate', label: '语速 0.5~2', kind: 'number', hint: '默认 1' },
-        { key: 'pitch', label: '音高 0~2', kind: 'number', hint: '默认 1' },
+      function buildFields(voices) {
+        const withCustom = (list) => (list && list.length > 0 ? list : []).concat([[CUSTOM, '自定义…（填下面的文本框）']])
+        return [
+          { section: '引擎' },
+          {
+            key: 'provider',
+            label: '语音引擎',
+            kind: 'select',
+            options: [['edge', 'Edge TTS（免费免 key，默认）'], ['volc', '火山方舟（豆包音色，要 API Key）']],
+            hint: '切换只改这个下拉框，不用重启；下次朗读就走新引擎。',
+          },
+          { key: 'enabled', label: '允许模型主动朗读（tts_speak）', kind: 'boolean' },
+          { key: 'maxChars', label: '单条最长字符数（超出截断）', kind: 'number', hint: '默认 300' },
+          { key: 'queueSize', label: '待播队列长度上限', kind: 'number', hint: '默认 10，满了丢最旧的' },
+          { key: 'audioKeep', label: '最多保留多少条音频文件（0=不限）', kind: 'number', hint: '默认 200，超出删最旧' },
 
-        { section: 'ComfyUI（provider=comfyui 时用）' },
-        { key: 'comfyUrl', label: 'ComfyUI 地址', kind: 'text', placeholder: 'http://127.0.0.1:8188' },
-        { key: 'comfyWorkflow', label: 'TTS 工作流 id', kind: 'text', hint: '留空则不能用 comfyui 引擎' },
+          { section: 'Edge TTS' },
+          {
+            key: 'edgeVoice',
+            label: '音色（下拉选）',
+            kind: 'select',
+            options: withCustom(voices.edge),
+            hint: '内置清单取自 Edge 官方 voices/list（实测拉取）；要别的选「自定义」。',
+          },
+          { key: 'edgeVoiceCustom', label: 'Edge 自定义音色（选「自定义」时生效）', kind: 'text', placeholder: 'zh-CN-XiaoxiaoNeural' },
+          { key: 'edgeRatePercent', label: '语速百分比（+20 = 快 20%）', kind: 'number', hint: '默认 0，范围 -50~100' },
+          { key: 'edgePitchHz', label: '音高 Hz（正数更高）', kind: 'number', hint: '默认 0，范围 -50~50' },
+          { key: 'edgeVolumePercent', label: '音量百分比（0=原始）', kind: 'number', hint: '默认 0，范围 -50~100' },
 
-        { section: '日志' },
-        {
-          key: 'logLevel',
-          label: '日志级别',
-          kind: 'select',
-          options: [['info', 'info：只记关键事件'], ['debug', 'debug：每次朗读都打'], ['warn', 'warn：只记问题']],
-        },
-      ]
+          { section: '火山方舟（豆包语音合成 2.0）' },
+          {
+            key: 'volcApiKey',
+            label: '专属 API Key',
+            kind: 'password',
+            hint: '火山方舟控制台 → Agent Plan → API Key。填了它再把引擎切到火山即可。',
+          },
+          { key: 'volcResourceId', label: '资源 id', kind: 'text', hint: '豆包语音合成 2.0 = seed-tts-2.0（默认）' },
+          {
+            key: 'volcSpeaker',
+            label: '音色（下拉选）',
+            kind: 'select',
+            options: withCustom(voices.volc),
+            hint: '清单取自官方「豆包语音合成模型 2.0 音色列表」；能否使用取决于你账号的音色授权/资源包。',
+          },
+          { key: 'volcSpeakerCustom', label: '火山自定义音色（选「自定义」时生效）', kind: 'text', placeholder: 'zh_female_vv_uranus_bigtts' },
+          { key: 'volcFormat', label: '输出格式（mp3 / wav / pcm）', kind: 'text', hint: '默认 mp3' },
+          { key: 'volcSampleRate', label: '采样率', kind: 'number', hint: '默认 24000' },
+          { key: 'volcEndpoint', label: '接口地址（留空=官方 v3）', kind: 'text', hint: '一般不用改' },
+
+          { section: '日志' },
+          {
+            key: 'logLevel',
+            label: '日志级别',
+            kind: 'select',
+            options: [['info', 'info：只记关键事件'], ['debug', 'debug：每次朗读都打'], ['warn', 'warn：只记问题']],
+          },
+        ]
+      }
 
       const style = {
         wrap: { display: 'flex', flexDirection: 'column', gap: '12px', padding: '4px 2px', maxWidth: '720px' },
@@ -104,10 +152,7 @@
         }
       }
 
-      /**
-       * 播放器：轮询待播队列 → speechSynthesis 念。
-       * 游标存 localStorage：刷新页面不会把历史重新念一遍。
-       */
+      /** 播放器：只播服务端合成好的音频（edge / volc 都有 audioUrl） */
       function createPlayer() {
         let cursor = 0
         let timer
@@ -115,48 +160,26 @@
         try {
           const stored = window.localStorage.getItem('dsh-tts:cursor')
           if (stored !== null) cursor = Number(stored) || 0
-        } catch (error) { /* 隐私模式拿不到 localStorage，就用内存游标 */ }
+        } catch (error) { /* 隐私模式没有 localStorage */ }
 
         const saveCursor = (value) => {
           cursor = value
           try { window.localStorage.setItem('dsh-tts:cursor', String(value)) } catch (error) { /* 忽略 */ }
         }
 
-        const pickVoice = (item) => {
-          const synth = window.speechSynthesis
-          if (!synth) return null
-          const voices = synth.getVoices() || []
-          if (item.voice) {
-            const exact = voices.find((voice) => voice.name === item.voice)
-            if (exact) return exact
-          }
-          const language = item.language || 'zh-CN'
-          return voices.find((voice) => voice.lang === language)
-            || voices.find((voice) => voice.lang && voice.lang.toLowerCase().startsWith(language.slice(0, 2).toLowerCase()))
-            || null
-        }
-
-        const speakOne = (item) => new Promise((resolve) => {
-          const synth = window.speechSynthesis
-          if (!synth || typeof window.SpeechSynthesisUtterance === 'undefined') { resolve(); return }
-          const utterance = new window.SpeechSynthesisUtterance(item.text)
-          const voice = pickVoice(item)
-          if (voice) utterance.voice = voice
-          if (typeof item.language === 'string' && item.language !== '') utterance.lang = item.language
-          if (typeof item.volume === 'number') utterance.volume = Math.max(0, Math.min(1, item.volume))
-          if (typeof item.rate === 'number') utterance.rate = Math.max(0.5, Math.min(2, item.rate))
-          if (typeof item.pitch === 'number') utterance.pitch = Math.max(0, Math.min(2, item.pitch))
-          let settled = false
-          const finish = () => { if (!settled) { settled = true; resolve() } }
-          utterance.onend = finish
-          utterance.onerror = finish
-          // 兜底：某些浏览器不触发 onend（长文本/切标签页）
-          const guard = setTimeout(finish, 60_000)
-          utterance.addEventListener('end', () => clearTimeout(guard))
+        const playOne = (item) => new Promise((resolve) => {
+          if (typeof item.audioUrl !== 'string' || item.audioUrl === '') { resolve(); return }
           try {
+            const audio = new window.Audio(item.audioUrl)
+            const finish = () => { resolve() }
+            audio.onended = finish
+            audio.onerror = finish
             window.dispatchEvent(new CustomEvent('dsh-tts:speak', { detail: item }))
-            synth.speak(utterance)
-          } catch (error) { clearTimeout(guard); finish() }
+            const played = audio.play()
+            if (played && typeof played.catch === 'function') played.catch(finish)
+          } catch (error) {
+            resolve()
+          }
         })
 
         const tick = async () => {
@@ -172,11 +195,11 @@
               return
             }
             for (const item of items) {
-              await speakOne(item)
+              await playOne(item)
               saveCursor(item.seq)
             }
           } catch (error) {
-            // 服务端可能还没挂上路由：静默重试
+            // 服务端没挂上路由时静默重试
           } finally {
             busy = false
           }
@@ -190,7 +213,7 @@
         const stop = () => {
           if (timer !== undefined) { clearInterval(timer); timer = undefined }
         }
-        return { start, stop, speakOne, getCursor: () => cursor, setCursor: saveCursor }
+        return { start, stop, getCursor: () => cursor, setCursor: saveCursor }
       }
 
       function renderField(field, value, onChange) {
@@ -216,7 +239,7 @@
           })
         } else {
           control = react.createElement('input', {
-            id, type: 'text', style: style.input,
+            id, type: field.kind === 'password' ? 'password' : 'text', style: style.input,
             placeholder: field.placeholder, value: value == null ? '' : String(value),
             onChange: (event) => onChange(field.key, event.target.value),
           })
@@ -233,8 +256,35 @@
         const [draft, setDraft] = react.useState({})
         const [revision, setRevision] = react.useState(undefined)
         const [message, setMessage] = react.useState(undefined)
-        const [testText, setTestText] = react.useState('你好呀，我是小灯，这是语音测试。')
+        const [voices, setVoices] = react.useState({ edge: FALLBACK.edge, volc: FALLBACK.volc })
+        const [testText, setTestText] = react.useState('你好呀，我是小灯，这是语音试听。')
+        const [auditioning, setAuditioning] = react.useState(false)
         const player = react.useMemo(() => createPlayer(), [])
+
+        // 拉音色列表（失败就用内置兜底）
+        react.useEffect(() => {
+          let cancelled = false
+          void (async () => {
+            try {
+              const [edgeRes, volcRes] = await Promise.all([
+                fetch('/dsh-tts/api/voices?provider=edge', { cache: 'no-store' }),
+                fetch('/dsh-tts/api/voices?provider=volc', { cache: 'no-store' }),
+              ])
+              const edgeJson = edgeRes.ok ? await edgeRes.json() : undefined
+              const volcJson = volcRes.ok ? await volcRes.json() : undefined
+              if (cancelled) return
+              const toPairs = (payload, fallback) => {
+                const list = payload && Array.isArray(payload.voices) ? payload.voices : []
+                if (list.length === 0) return fallback
+                return list.map((item) => [item.id, item.label])
+              }
+              setVoices({ edge: toPairs(edgeJson, FALLBACK.edge), volc: toPairs(volcJson, FALLBACK.volc) })
+            } catch (error) { /* 保留兜底 */ }
+          })()
+          return () => { cancelled = true }
+        }, [])
+
+        const fieldList = react.useMemo(() => buildFields(voices), [voices])
 
         const load = react.useCallback(async () => {
           const remote = remoteOf(ctx)
@@ -271,7 +321,7 @@
             const list = described && Array.isArray(described.namespaces) ? described.namespaces : []
             const row = list.find((item) => item && item.ns === NS)
             const next = {}
-            for (const field of FIELDS) {
+            for (const field of fieldList) {
               if (!Object.prototype.hasOwnProperty.call(draft, field.key)) continue
               const value = draft[field.key]
               if (value === undefined) continue
@@ -287,16 +337,25 @@
           }
         }
 
-        const testSpeak = () => {
-          void player.speakOne({
-            seq: -1,
-            text: testText,
-            language: draft.language || 'zh-CN',
-            voice: draft.voice || undefined,
-            volume: typeof draft.volume === 'number' ? draft.volume : 1,
-            rate: typeof draft.rate === 'number' ? draft.rate : 1,
-            pitch: typeof draft.pitch === 'number' ? draft.pitch : 1,
-          })
+        /** 试听：走服务端当前引擎合成，再播这个文件 */
+        const testSpeak = async () => {
+          if (auditioning) return
+          setAuditioning(true)
+          setMessage(undefined)
+          try {
+            const response = await fetch('/dsh-tts/api/test?text=' + encodeURIComponent(testText), { cache: 'no-store' })
+            if (!response.ok) throw new Error('HTTP ' + response.status)
+            const payload = await response.json()
+            if (payload.error !== undefined) throw new Error(payload.error)
+            if (typeof payload.url !== 'string' || payload.url === '') throw new Error('没有拿到音频')
+            const audio = new window.Audio(payload.url)
+            await audio.play().catch(() => undefined)
+            setMessage({ ok: true, text: '试听（' + payload.provider + '）：已播放' })
+          } catch (error) {
+            setMessage({ ok: false, text: '试听失败：' + String(error && error.message ? error.message : error) })
+          } finally {
+            setAuditioning(false)
+          }
         }
 
         if (state.phase === 'loading') return react.createElement('p', { style: style.hint }, '读取配置中…')
@@ -317,8 +376,8 @@
 
         return react.createElement('div', { style: style.wrap },
           react.createElement('p', { style: style.hint },
-            '浏览器朗读不需要任何依赖：模型调 tts_speak 后，这个页面会念出来。桌宠/直播以后都从这里拿"她在说什么"。'),
-          FIELDS.map((field) => {
+            '默认 Edge TTS（免费免 key）；切火山方舟需要填它的 API Key。试听会用当前引擎真实合成。'),
+          fieldList.map((field) => {
             if (field.section !== undefined) {
               return react.createElement('div', {
                 key: 'section:' + field.section,
@@ -336,14 +395,13 @@
             })
           }),
           react.createElement('div', { style: style.row },
-            react.createElement('label', { style: style.label }, '试听（直接用本机浏览器念，不经过模型）'),
+            react.createElement('label', { style: style.label }, '试听（走当前引擎）'),
             react.createElement('input', {
               style: style.input, value: testText,
               onChange: (event) => setTestText(event.target.value),
             }),
             react.createElement('div', { style: style.bar },
-              react.createElement('button', { style: style.btn, onClick: testSpeak }, '试听'))
-          ),
+              react.createElement('button', { style: style.primary, onClick: () => void testSpeak() }, auditioning ? '合成中…' : '试听'))),
           react.createElement('div', { style: style.bar },
             react.createElement('button', { style: style.primary, onClick: () => void save() }, '保存'),
             react.createElement('button', { style: style.btn, onClick: () => { player.setCursor(0) } }, '重置播放游标'),
