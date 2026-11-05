@@ -86,4 +86,10 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     logLevel: z<"debug" | "info" | "warn", "debug" | "info" | "warn", "defined">;
 }>>, "plain">;
 export declare const DEFAULTS: ConfigShape;
+/**
+ * 合并配置。
+ *
+ * 宿主传进来的值不一定干净（历史上遇到过 package.json 带 BOM、字段类型被写成数字等），
+ * 所以这里按 DEFAULTS 的类型逐字段强制转换 —— 这样 `config.audioDir.trim()` 这类调用不会炸。
+ */
 export declare function resolveConfig(raw: Partial<ConfigShape> | undefined): ConfigShape;
