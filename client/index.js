@@ -27,10 +27,9 @@
         edge: [
           ['zh-CN-XiaoxiaoNeural', '晓晓 · 女声（最常用）'],
           ['zh-CN-XiaoyiNeural', '晓伊 · 女声'],
-          ['zh-CN-YunxiNeural', '云希 · 男声（年轻）'],
-          ['zh-CN-YunyangNeural', '云扬 · 男声（播报）'],
-          ['zh-CN-YunjianNeural', '云健 · 男声（体育）'],
-          ['zh-CN-YunxiaNeural', '云夏 · 男声（少年）'],
+          ['zh-CN-liaoning-XiaobeiNeural', '晓北 · 女声（东北话）'],
+          ['zh-TW-HsiaoChenNeural', '曉臻 · 女声（台湾）'],
+          ['zh-HK-HiuMaanNeural', '曉曼 · 女声（粤语）'],
           ['ja-JP-NanamiNeural', 'ナナミ · 女声（日语）'],
           ['en-US-AriaNeural', 'Aria · 女声（英语）'],
         ],
