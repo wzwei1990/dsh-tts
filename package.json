@@ -1,0 +1,76 @@
+﻿{
+  "name": "dsh-tts",
+  "version": "0.1.0",
+  "description": "Text-to-speech for DeepSeek Harness: a provider registry (browser speechSynthesis first, ComfyUI/edge later), a speak tool, and an audio event the pet/live plugins can consume",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json",
+    "./client": {
+      "default": "./client/index.js"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "dsh.plugin.json",
+    "client"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "tts",
+    "text-to-speech",
+    "speech",
+    "voice",
+    "live2d"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wzwei1990/dsh-tts.git"
+  },
+  "homepage": "https://github.com/wzwei1990/dsh-tts#readme",
+  "bugs": {
+    "url": "https://github.com/wzwei1990/dsh-tts/issues"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-0 <0.3.0-0",
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-0 <0.3.0-0",
+    "@deepseek-ai/schemastery": "^3.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "prepublishOnly": "npm run build"
+  }
+}
