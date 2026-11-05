@@ -30,7 +30,8 @@ export { Config }
 
 export const name = 'dsh-tts'
 
-export const inject = ['tools']
+/** tools 必备；webServer 用于挂 /dsh-tts/api（试听、待播队列、音频）。不 inject 的话宿主不会把 webServer 给我，路由就不存在 → 试听 404 */
+export const inject = ['tools', 'webServer']
 
 const LEVEL_RANK: Record<string, number> = { debug: 0, info: 1, warn: 2 }
 
