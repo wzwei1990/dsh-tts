@@ -35,8 +35,15 @@ export declare class UtteranceQueue {
     private dropped;
     constructor(max: number);
     push(input: Omit<Utterance, 'seq' | 'createdAt'>): Utterance;
-    /** 取 since 之后的所有条目（默认全量，用于首次同步） */
+    /**
+     * 取 since 之后的所有条目（默认全量，用于首次同步）。
+     *
+     * since > 0 说明浏览器已经播到那一带了 —— 顺手把更旧的条目裁掉。
+     * 这样即使有人把播放游标清零，也不会把历史积压当新内容复读一遍。
+     */
     pending(since?: number): PendingResult;
+    /** 丢掉 seq <= upto 的条目（已被消费的） */
+    trimThrough(upto: number): number;
     /** 当前游标（浏览器首次进来时用它对齐，避免把历史重新念一遍） */
     cursor(): number;
     stats(): {

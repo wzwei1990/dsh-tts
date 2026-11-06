@@ -394,6 +394,19 @@
           }
         }
 
+        /** 清空待播队列：模型说太多时一键闭嘴 */
+        const clearQueue = async () => {
+          setMessage(undefined)
+          try {
+            const response = await fetch('/dsh-tts/api/clear', { cache: 'no-store' })
+            if (!response.ok) throw new Error('HTTP ' + response.status)
+            const payload = await response.json()
+            setMessage({ ok: true, text: '已清空待播队列（丢掉 ' + String(payload.cleared ?? 0) + ' 条）' })
+          } catch (error) {
+            setMessage({ ok: false, text: '清空失败：' + String(error && error.message ? error.message : error) })
+          }
+        }
+
         if (state.phase === 'loading') return react.createElement('p', { style: style.hint }, '读取配置中…')
         if (state.phase === 'unsupported') {
           return react.createElement('div', { style: style.wrap },
@@ -412,7 +425,7 @@
 
         return react.createElement('div', { style: style.wrap },
           react.createElement('p', { style: style.hint },
-            '默认 Edge TTS（免费免 key）；切火山方舟需要填它的 API Key。试听会用当前引擎真实合成。'),
+            '默认 Edge TTS（免费免 key）；切火山方舟需要填它的 API Key。试听会用当前引擎真实合成；保存后 1~2 秒自动生效，不用重启。'),
           fieldList.map((field) => {
             if (field.section !== undefined) {
               return react.createElement('div', {
@@ -440,8 +453,7 @@
               react.createElement('button', { style: style.primary, onClick: () => void testSpeak() }, auditioning ? '合成中…' : '试听'))),
           react.createElement('div', { style: style.bar },
             react.createElement('button', { style: style.primary, onClick: () => void save() }, '保存'),
-            react.createElement('button', { style: style.btn, onClick: () => { player.setCursor(0) } }, '重置播放游标'),
-            react.createElement('button', { style: style.btn, onClick: () => void load() }, '重新读取'),
+            react.createElement('button', { style: style.btn, onClick: () => void clearQueue() }, '清空待播队列'),
             message === undefined ? null
               : react.createElement('p', { style: message.ok ? style.ok : style.error }, message.text)))
       }

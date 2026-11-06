@@ -16,12 +16,13 @@ test('待播队列：序号单调、since 只取新的、满了丢最旧', async
   assert.deepEqual(after.items.map(item => item.text), ['第二句'])
   assert.equal(after.cursor, 2)
 
-  // 队列满：丢最旧
+  // pending(1) 已经把第一句裁掉了，现在只剩第二句
+  assert.equal(queue.stats().length, 1, '已播的条目被裁掉')
   queue.push({ text: '第三句', source: 'agent' })
   queue.push({ text: '第四句', source: 'agent' })
   const stats = queue.stats()
   assert.equal(stats.length, 3, '上限 3')
-  assert.equal(stats.dropped, 1, '丢了 1 条')
+  assert.equal(stats.dropped, 0, '没超上限就不丢（裁剪已经在 pending 时做过）')
   assert.deepEqual(queue.pending(0).items.map(item => item.text), ['第二句', '第三句', '第四句'])
 
   queue.clear()
@@ -137,4 +138,32 @@ test('配置热更新：profile YAML 改了，运行中的插件立刻读到新�
     else process.env.DSH_HOME = previous
     await rm(root, { recursive: true, force: true })
   }
+})
+test('队列：游标推进后已播条目被裁掉（重置游标也不会复读）', async () => {
+  const { UtteranceQueue } = await import('../lib/queue.js')
+  const queue = new UtteranceQueue(10)
+  const a = queue.push({ text: '第一句', source: 'agent' })
+  const b = queue.push({ text: '第二句', source: 'agent' })
+  const c = queue.push({ text: '第三句', source: 'agent' })
+  assert.equal(queue.stats().length, 3)
+
+  // 浏览器取到 c 为止（since=c.seq），说明前三句都播过了
+  const page = queue.pending(c.seq)
+  assert.equal(page.items.length, 0)
+  assert.equal(queue.stats().length, 0, '已播的应被裁掉')
+
+  // 再来新的一句，游标 0 也只会看到这一句（不会复读）
+  queue.push({ text: '第四句', source: 'agent' })
+  const all = queue.pending(0)
+  assert.deepEqual(all.items.map(item => item.text), ['第四句'])
+
+  // clear 也能清空
+  queue.push({ text: '第五句', source: 'agent' })
+  const cleared = queue.stats().length
+  assert.ok(cleared >= 1, '清空前队列里应该有东西')
+  queue.clear()
+  assert.equal(queue.stats().length, 0)
+  // 序号仍单调（避免旧游标命中新条目）
+  const next = queue.push({ text: '第六句', source: 'agent' })
+  assert.ok(next.seq > c.seq)
 })

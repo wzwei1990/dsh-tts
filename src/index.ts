@@ -244,6 +244,13 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
             })()
             return
           }
+          if (url.pathname === '/dsh-tts/api/clear') {
+            // 清空待播队列：模型连着说了太多，用户想立刻闭嘴
+            const cleared = queue.stats().length
+            queue.clear()
+            json({ cleared })
+            return
+          }
           if (url.pathname === '/dsh-tts/api/voices') {
             const provider = url.searchParams.get('provider') ?? config().provider
             json({ provider, voices: voicesFor(provider) })

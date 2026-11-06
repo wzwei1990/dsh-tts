@@ -1,6 +1,6 @@
 {
   "name": "dsh-tts",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Text-to-speech for DeepSeek Harness: swappable engines (Edge TTS free by default, Volcengine Ark doubao-seed-tts-2.0), voice dropdowns from measured lists, an audio queue for pet/live plugins, and QQ voice via dsh-napcat.",
   "type": "module",
   "main": "lib/index.js",
