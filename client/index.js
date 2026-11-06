@@ -166,18 +166,48 @@
           try { window.localStorage.setItem('dsh-tts:cursor', String(value)) } catch (error) { /* 忽略 */ }
         }
 
+        /**
+         * 播一条。返回 { ok, error } —— 不再把失败当成功，
+         * 否则会出现"显示已播放但没声音"。
+         */
         const playOne = (item) => new Promise((resolve) => {
-          if (typeof item.audioUrl !== 'string' || item.audioUrl === '') { resolve(); return }
+          if (typeof item.audioUrl !== 'string' || item.audioUrl === '') {
+            resolve({ ok: false, error: '没有 audioUrl' })
+            return
+          }
+          let audio
           try {
-            const audio = new window.Audio(item.audioUrl)
-            const finish = () => { resolve() }
-            audio.onended = finish
-            audio.onerror = finish
-            window.dispatchEvent(new CustomEvent('dsh-tts:speak', { detail: item }))
-            const played = audio.play()
-            if (played && typeof played.catch === 'function') played.catch(finish)
+            audio = new window.Audio(item.audioUrl)
           } catch (error) {
-            resolve()
+            resolve({ ok: false, error: '创建 Audio 失败：' + String(error && error.message ? error.message : error) })
+            return
+          }
+          let settled = false
+          const finish = (result) => { if (!settled) { settled = true; resolve(result) } }
+          audio.onended = () => finish({ ok: true })
+          audio.onerror = () => {
+            const code = audio.error && audio.error.code
+            const map = { 1: '加载被中断', 2: '网络错误（音频文件取不到）', 3: '解码失败', 4: '格式不支持或文件损坏' }
+            finish({ ok: false, error: (map[code] || '音频加载失败') + '（code ' + String(code ?? '?') + '）' })
+          }
+          window.dispatchEvent(new CustomEvent('dsh-tts:speak', { detail: item }))
+          try {
+            const played = audio.play()
+            if (played && typeof played.then === 'function') {
+              played.then(() => { /* 开始播放了，等 onended */ }).catch((error) => {
+                const name = error && error.name
+                const hint = name === 'NotAllowedError'
+                  ? '浏览器要求先点一下页面才能播放（自动播放被拦）'
+                  : name === 'NotSupportedError'
+                    ? '浏览器不支持这个音频格式'
+                    : String(error && error.message ? error.message : error)
+                finish({ ok: false, error: hint })
+              })
+            }
+            // 兜底：长时间没有 ended 也当作播放过（避免队列卡住）
+            setTimeout(() => finish({ ok: true }), 60_000)
+          } catch (error) {
+            finish({ ok: false, error: String(error && error.message ? error.message : error) })
           }
         })
 
@@ -194,7 +224,8 @@
               return
             }
             for (const item of items) {
-              await playOne(item)
+              const result = await playOne(item)
+              if (!result.ok) console.warn('[dsh-tts] 播放失败: ' + result.error)
               saveCursor(item.seq)
             }
           } catch (error) {
@@ -212,7 +243,7 @@
         const stop = () => {
           if (timer !== undefined) { clearInterval(timer); timer = undefined }
         }
-        return { start, stop, getCursor: () => cursor, setCursor: saveCursor }
+        return { start, stop, playOne, getCursor: () => cursor, setCursor: saveCursor }
       }
 
       function renderField(field, value, onChange) {
@@ -347,9 +378,15 @@
             const payload = await response.json()
             if (payload.error !== undefined) throw new Error(payload.error)
             if (typeof payload.url !== 'string' || payload.url === '') throw new Error('没有拿到音频')
-            const audio = new window.Audio(payload.url)
-            await audio.play().catch(() => undefined)
-            setMessage({ ok: true, text: '试听（' + payload.provider + '）：已播放' })
+            const result = await player.playOne({
+              seq: -1,
+              audioUrl: payload.url,
+              text: testText,
+              source: 'audition',
+            })
+            if (!result.ok) throw new Error(result.error || '播放失败')
+            const sizeText = typeof payload.size === 'number' && payload.size > 0 ? '，音频 ' + Math.round(payload.size / 1024) + 'KB' : ''
+            setMessage({ ok: true, text: '试听（' + payload.provider + '）：已播放' + sizeText })
           } catch (error) {
             setMessage({ ok: false, text: '试听失败：' + String(error && error.message ? error.message : error) })
           } finally {
