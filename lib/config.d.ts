@@ -53,6 +53,10 @@ export interface ConfigShape {
     asrLanguage: string;
     /** 单段识别上限（秒） */
     asrChunkSeconds: number;
+    /** 自动朗读模型回复 */
+    autoRead: boolean;
+    /** 自动朗读时跳过哪些会话 id 前缀（逗号分隔，默认跳过 QQ 通道） */
+    autoReadSkipPrefix: string;
 }
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     provider: z<"edge" | "volc", "edge" | "volc", "volatile-defined">;

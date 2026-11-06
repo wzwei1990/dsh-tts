@@ -22,6 +22,8 @@ export interface Utterance {
   source: string
   /** 服务端已合成音频时的可访问地址（/dsh-tts/audio/xxx.mp3）；没有则浏览器自己念 */
   audioUrl?: string
+  /** 音频时长（毫秒，桌宠口型/进度条用） */
+  durationMs?: number
   createdAt: number
 }
 

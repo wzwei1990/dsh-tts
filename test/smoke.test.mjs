@@ -167,3 +167,54 @@ test('队列：游标推进后已播条目被裁掉（重置游标也不会复�
   const next = queue.push({ text: '第六句', source: 'agent' })
   assert.ok(next.seq > c.seq)
 })
+test('MP3 时长解析：能算出毫秒数（桌宠口型要用）', async () => {
+  const { writeFile, mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { mp3Duration } = await import('../lib/mp3.js')
+  // 用桌面上的真实合成文件测（没有就跳过，不伪造音频）
+  const dir = join(process.env.USERPROFILE ?? process.env.HOME ?? '.', '.dsh', 'dsh-tts', 'audio')
+  const fs = await import('node:fs')
+  if (!fs.existsSync(dir)) return
+  const files = fs.readdirSync(dir).filter(name => name.endsWith('.mp3'))
+  if (files.length === 0) return
+  const info = await mp3Duration(join(dir, files[0]))
+  assert.equal(info.ok, true, '真实 mp3 应能解析')
+  assert.ok(info.durationMs > 200 && info.durationMs < 120_000, '时长应在合理范围: ' + String(info.durationMs))
+  assert.ok([16000, 22050, 24000, 32000, 44100, 48000].includes(info.sampleRate), '采样率应常见: ' + String(info.sampleRate))
+  // 不存在的文件应抛错而不是崩
+  const tmp = await mkdtemp(join(tmpdir(), 'mp3-'))
+  await writeFile(join(tmp, 'bad.mp3'), Buffer.alloc(64, 0))
+  const bad = await mp3Duration(join(tmp, 'bad.mp3'))
+  assert.equal(bad.ok, false, '垃圾数据应返回 ok=false')
+  await rm(tmp, { recursive: true, force: true })
+})
+
+test('自动朗读：跳过 napcat 会话与工具轮，同轮多条合并成一条', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const mod = await import('../lib/index.js')
+  const handlers = new Map()
+  const provided = {}
+  const ctx = {
+    tools: { register: () => {} },
+    provide: (name, value) => { provided[name] = value },
+    webServer: { register: () => () => {} },
+    on: (name, handler) => { handlers.set(name, handler) },
+    logger: () => {},
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'tts-auto-'))
+  mod.apply(ctx, { provider: 'edge', enabled: true, autoRead: true, audioDir: dir, maxChars: 120 })
+  const handler = handlers.get('session/event')
+  assert.equal(typeof handler, 'function', '应订阅 session/event')
+  const emit = (id, content) => handler({ header: { id } }, { type: 'assistant/message', payload: { message: { content } } })
+  emit('web-1', [{ type: 'text', text: '中间一句' }])
+  emit('web-1', [{ type: 'text', text: '最终回复：左边墙上有隐藏门' }])
+  emit('napcat-group-9', [{ type: 'text', text: '这句不该朗读' }])
+  emit('web-2', [{ type: 'tool-call', name: 'x' }, { type: 'text', text: '工具轮不该朗读' }])
+  // 立即看队列（不等合成）：只有一条 autoread，且是最后一句
+  const pending = provided.dshTts.pending(0).items.filter(item => item.source === 'autoread')
+  assert.ok(pending.length <= 1, '同轮多条应合并，实际: ' + String(pending.length))
+  await rm(dir, { recursive: true, force: true })
+})

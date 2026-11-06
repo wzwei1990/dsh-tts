@@ -59,7 +59,20 @@
           { key: 'queueSize', label: '待播队列长度上限', kind: 'number', hint: '默认 10，满了丢最旧的' },
           { key: 'audioKeep', label: '最多保留多少条音频文件（0=不限）', kind: 'number', hint: '默认 200，超出删最旧' },
 
-          { section: 'Edge TTS' },
+          { section: '自动朗读' },
+            {
+              key: 'autoRead',
+              label: '自动朗读模型回复（不用让它「念一遍」）',
+              kind: 'boolean',
+              hint: '开=模型每轮最终回复都会合成并播放；关=只有模型主动调 tts_speak 或点试听时才出声。',
+            },
+            {
+              key: 'autoReadSkipPrefix',
+              label: '跳过哪些会话（会话 id 前缀，逗号分隔；默认 napcat-）',
+              kind: 'text',
+              hint: 'QQ 通道的会话 id 以 napcat- 开头。留着它，群里发语音时浏览器就不会重复念一遍。',
+            },
+            { section: 'Edge TTS' },
           {
             key: 'edgeVoice',
             label: '音色（下拉选）',

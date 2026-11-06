@@ -21,6 +21,7 @@ import { AudioStore } from './audio.js'
 import { Config, DEFAULTS, resolveConfig, type ConfigShape } from './config.js'
 import { synthesizeEdge } from './edge.js'
 import { transcribeAudio } from './asr.js'
+import { mp3Duration } from './mp3.js'
 import { LiveConfig } from './liveconfig.js'
 import { UtteranceQueue, type Utterance, type PendingResult } from './queue.js'
 import { ProviderRegistry, type SpeakOptions, type SpeakResult, type TtsProvider } from './providers.js'
@@ -130,6 +131,19 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
   registry.register(edgeProvider(queue, config, audio))
   registry.register(volcProvider(queue, config, audio))
 
+  /** 解析音频时长并写回 utterance（失败返回 undefined，不影响朗读） */
+  const durationOf = async (path: string | undefined, utterance: Utterance): Promise<number | undefined> => {
+    if (path === undefined) return undefined
+    try {
+      const info = await mp3Duration(path)
+      if (!info.ok) return undefined
+      utterance.durationMs = info.durationMs
+      return info.durationMs
+    } catch {
+      return undefined
+    }
+  }
+
   const speak = async (text: string, options: SpeakOptions = {}): Promise<SpeakResult> => {
     if (!config().enabled) throw new Error('TTS 已关闭（设置页 enabled）')
     const trimmed = text.trim()
@@ -141,12 +155,16 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     }
     const placeholder: Utterance = { seq: 0, text: clipped, source: options.source ?? 'agent', createdAt: Date.now() }
     const result = await provider.speak(clipped, options, placeholder)
-    log('info', '朗读 ' + String(result.utterance.seq) + '：' + result.provider + ' ← ' + clipped.slice(0, 30))
+    // 补音频时长：桌宠口型 / 进度条 / 事件订阅者都要用；解析失败也不影响朗读
+    const durationMs = await durationOf(result.audioPath, result.utterance)
+    if (durationMs !== undefined) result.durationMs = durationMs
+    log('info', '朗读 ' + String(result.utterance.seq) + '：' + result.provider + ' ← ' + clipped.slice(0, 30)
+      + (durationMs === undefined ? '' : '（' + (durationMs / 1000).toFixed(1) + 's）'))
     return result
   }
 
   /** 只合成不入队：给 QQ 语音这类"自己拿文件去发"的消费者 */
-  const synthesize = async (text: string, options: SpeakOptions = {}): Promise<{ path: string; url: string; provider: string }> => {
+  const synthesize = async (text: string, options: SpeakOptions = {}): Promise<{ path: string; url: string; provider: string; durationMs?: number }> => {
     const trimmed = text.trim()
     if (trimmed === '') throw new Error('要念的内容是空的')
     const clipped = trimmed.length > config().maxChars ? trimmed.slice(0, config().maxChars) + '…' : trimmed
@@ -162,7 +180,8 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     }
     // 合成专用不进队列：把刚入队的那条撤掉（避免浏览器又念一遍）
     queue.removeLast()
-    return { path: result.audioPath, url: result.audioUrl, provider: config().provider }
+    const durationMs = await durationOf(result.audioPath, placeholder)
+    return { path: result.audioPath, url: result.audioUrl, provider: config().provider, durationMs }
   }
 
   /**
@@ -209,6 +228,55 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     host.provide?.('dshTts', api)
   } catch {
     log('debug', '宿主不支持 provide(dshTts)，跳过服务注册（工具仍可用）')
+  }
+
+  /**
+   * 自动朗读：监听会话事件，把模型的最终回复念出来。
+   *
+   * - 只认 assistant/message，且不含 tool-call 块（中间轮次不念）
+   * - 同一会话 900ms 内的多条合并，只念最后一条
+   * - 跳过 autoReadSkipPrefix（默认 napcat-，QQ 那边自己发语音，不重复）
+   */
+  let autoReadTimer: ReturnType<typeof setTimeout> | undefined
+  const autoReadPending = new Map<string, string>()
+  const autoReadFlush = (): void => {
+    autoReadTimer = undefined
+    for (const [sessionId, text] of autoReadPending) {
+      autoReadPending.delete(sessionId)
+      if (text.trim() === '') continue
+      void speak(text, { source: 'autoread' }).catch((error: unknown) => {
+        log('debug', '自动朗读失败（' + sessionId + '）: ' + (error instanceof Error ? error.message : String(error)))
+      })
+    }
+  }
+  const onSessionEvent = (session: unknown, event: unknown): void => {
+    if (!config().autoRead) return
+    if ((event as { type?: string }).type !== 'assistant/message') return
+    const sessionId = String((session as { header?: { id?: unknown }; id?: unknown }).header?.id
+      ?? (session as { id?: unknown }).id ?? '')
+    const skip = config().autoReadSkipPrefix.split(/[,，\s]+/).map(part => part.trim()).filter(part => part !== '')
+    if (skip.some(prefix => sessionId.startsWith(prefix))) return
+    const payload = ((event as { payload?: unknown }).payload ?? (event as { data?: unknown }).data ?? {}) as Record<string, unknown>
+    const message = (payload.message ?? payload) as { content?: unknown }
+    const content = message.content
+    if (!Array.isArray(content)) return
+    const blocks = content as Array<{ type?: string; text?: string }>
+    if (blocks.some(block => block.type === 'tool-call' || block.type === 'tool-use')) return
+    const text = blocks.filter(block => block.type === 'text').map(block => String(block.text ?? '')).join('').trim()
+    if (text === '') return
+    autoReadPending.set(sessionId, text)
+    if (autoReadTimer === undefined) autoReadTimer = setTimeout(autoReadFlush, 900)
+  }
+  try {
+    const on = (ctx as unknown as { on?: (name: string, handler: (a: unknown, b: unknown) => void) => unknown }).on
+    if (typeof on === 'function') {
+      on.call(ctx, 'session/event', onSessionEvent)
+      log('info', '已订阅 session/event（自动朗读' + (config().autoRead ? '已开启' : '默认关闭') + '）')
+    } else {
+      log('debug', 'ctx.on 不可用，自动朗读不可用')
+    }
+  } catch (error) {
+    log('debug', '订阅 session/event 失败: ' + (error instanceof Error ? error.message : String(error)))
   }
 
   registerTools(ctx, { queue, registry, speak, status: api.status, log , transcribe })

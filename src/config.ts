@@ -58,6 +58,11 @@ export interface ConfigShape {
   asrLanguage: string
   /** 单段识别上限（秒） */
   asrChunkSeconds: number
+
+  /** 自动朗读模型回复 */
+  autoRead: boolean
+  /** 自动朗读时跳过哪些会话 id 前缀（逗号分隔，默认跳过 QQ 通道） */
+  autoReadSkipPrefix: string
 }
 
 export const Config = z.object({
@@ -128,6 +133,8 @@ export const DEFAULTS: ConfigShape = {
   asrFormat: 'mp3',
   asrLanguage: '',
   asrChunkSeconds: 12,
+  autoRead: false,
+  autoReadSkipPrefix: 'napcat-',
 }
 
 /** 把任意宿主传进来的值安全地变成字符串（BOM/类型错乱/undefined 都兜住） */

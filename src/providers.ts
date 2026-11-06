@@ -33,6 +33,8 @@ export interface SpeakResult {
   audioUrl?: string
   /** server 侧才有：音频文件绝对路径（QQ 语音等本地消费用） */
   audioPath?: string
+  /** 音频时长（毫秒）：桌宠口型 / 进度条 / 事件订阅者用 */
+  durationMs?: number
   /** 给调用方看的一句话 */
   note: string
 }
