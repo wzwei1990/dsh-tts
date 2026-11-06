@@ -229,6 +229,12 @@ export class MiniWebSocket {
     this.socket.write(encodeFrame(payload, OP_BINARY))
   }
 
+  /** 发文本帧（Edge TTS 的控制帧是 JSON 文本） */
+  sendText(text: string): void {
+    if (this.socket === undefined || this.closed) return
+    this.socket.write(encodeFrame(Buffer.from(text, 'utf8'), OP_TEXT))
+  }
+
   close(): void {
     if (this.socket === undefined) return
     if (!this.closed) {

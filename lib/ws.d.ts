@@ -31,6 +31,8 @@ export declare class MiniWebSocket {
     connect(): void;
     private consume;
     send(payload: Buffer): void;
+    /** 发文本帧（Edge TTS 的控制帧是 JSON 文本） */
+    sendText(text: string): void;
     close(): void;
     private fail;
 }
