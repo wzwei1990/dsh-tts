@@ -218,3 +218,46 @@ test('自动朗读：跳过 napcat 会话与工具轮，同轮多条合并成一
   assert.ok(pending.length <= 1, '同轮多条应合并，实际: ' + String(pending.length))
   await rm(dir, { recursive: true, force: true })
 })
+test('配置 schema 包含 asr*/autoRead* 且都可保存（否则设置页保存会被拒）', async () => {
+  const { Config } = await import('../lib/config.js')
+  const dict = Config.dict
+  assert.ok(dict !== undefined, 'schema 应有字段字典')
+  for (const key of ['asrEnabled', 'asrResourceId', 'asrFormat', 'asrLanguage', 'asrChunkSeconds', 'autoRead']) {
+    assert.ok(dict[key] !== undefined, key + ' 必须在 schema 里（缺了会报 not volatile）')
+  }
+})
+test('去重：刚 tts_speak 过的内容，自动朗读不再重复念；新内容照常念', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const mod = await import('../lib/index.js')
+  const handlers = new Map()
+  const provided = {}
+  const tools = new Map()
+  const ctx = {
+    tools: { register: (tool) => tools.set(tool.name, tool) },
+    provide: (name, value) => { provided[name] = value },
+    webServer: { register: () => () => {} },
+    on: (name, handler) => { handlers.set(name, handler) },
+    logger: () => {},
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'tts-dedupe-'))
+  mod.apply(ctx, { provider: 'edge', enabled: true, autoRead: true, audioDir: dir, maxChars: 200 })
+  await tools.get('tts_speak').execute({ text: '这关在左边墙上有个隐藏门' })
+  const handler = handlers.get('session/event')
+  handler({ header: { id: 'web-1' } }, { type: 'assistant/message', payload: { message: { content: [{ type: 'text', text: '这关在左边墙上有个隐藏门。' }] } } })
+  // 等自动朗读窗口（900ms）过去，看是否被去重挡掉
+  await new Promise(resolve => setTimeout(resolve, 1800))
+  const items = provided.dshTts.pending(0).items
+  assert.equal(items.length, 1, '相同内容不应重复入队，实际 ' + String(items.length))
+  await rm(dir, { recursive: true, force: true })
+})
+test('朗读前清洗：去掉 Markdown / 链接 / emoji，保留可读文字', async () => {
+  const { sanitizeForSpeech } = await import('../lib/text.js')
+  assert.equal(sanitizeForSpeech('**重点**：左边有门 🔥'), '重点：左边有门', '加粗与 emoji 应去掉')
+  assert.equal(sanitizeForSpeech('看这个 → https://b23.tv/abc123 挺好看'), '看这个 → 挺好看', '裸链接应去掉')
+  assert.equal(sanitizeForSpeech('[点这里](https://example.com) 有攻略'), '点这里 有攻略', 'Markdown 链接保留文字')
+  assert.equal(sanitizeForSpeech('## 结论\n- 第一条'), '结论\n第一条', '标题与列表符号应去掉')
+  assert.equal(sanitizeForSpeech('正常的一句话。'), '正常的一句话。', '纯文本不应被改动')
+  assert.equal(sanitizeForSpeech('😄😄'), '', '只有 emoji 时清洗后为空')
+})

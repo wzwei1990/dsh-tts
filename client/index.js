@@ -62,15 +62,9 @@
           { section: '自动朗读' },
             {
               key: 'autoRead',
-              label: '自动朗读模型回复（不用让它「念一遍」）',
+              label: '把模型回复合成成语音，播放一遍',
               kind: 'boolean',
-              hint: '开=模型每轮最终回复都会合成并播放；关=只有模型主动调 tts_speak 或点试听时才出声。',
-            },
-            {
-              key: 'autoReadSkipPrefix',
-              label: '跳过哪些会话（会话 id 前缀，逗号分隔；默认 napcat-）',
-              kind: 'text',
-              hint: 'QQ 通道的会话 id 以 napcat- 开头。留着它，群里发语音时浏览器就不会重复念一遍。',
+              hint: '开=每轮最终回复都合成并播放（和 QQ 语音同一套文本清洗、同一个音色，所以念的内容一致）；关=只有模型主动调 tts_speak 或点试听时才出声。\nQQ 通道的会话固定跳过（那边由 napcat 自己发语音），不会重复念。',
             },
             { section: 'Edge TTS' },
           {
@@ -398,7 +392,8 @@
               source: 'audition',
             })
             if (!result.ok) throw new Error(result.error || '播放失败')
-            const sizeText = typeof payload.size === 'number' && payload.size > 0 ? '，音频 ' + Math.round(payload.size / 1024) + 'KB' : ''
+            const sizeText = (typeof payload.size === 'number' && payload.size > 0 ? '，音频 ' + Math.round(payload.size / 1024) + 'KB' : '')
+              + (typeof payload.durationMs === 'number' && payload.durationMs > 0 ? ' ' + (payload.durationMs / 1000).toFixed(1) + ' 秒' : '')
             setMessage({ ok: true, text: '试听（' + payload.provider + '）：已播放' + sizeText })
           } catch (error) {
             setMessage({ ok: false, text: '试听失败：' + String(error && error.message ? error.message : error) })

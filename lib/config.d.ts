@@ -55,8 +55,6 @@ export interface ConfigShape {
     asrChunkSeconds: number;
     /** 自动朗读模型回复 */
     autoRead: boolean;
-    /** 自动朗读时跳过哪些会话 id 前缀（逗号分隔，默认跳过 QQ 通道） */
-    autoReadSkipPrefix: string;
 }
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     provider: z<"edge" | "volc", "edge" | "volc", "volatile-defined">;
@@ -77,6 +75,12 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     volcFormat: z<string, string, "volatile-defined">;
     volcSampleRate: z<number, number, "volatile-defined">;
     volcEndpoint: z<string, string, "volatile-defined">;
+    asrEnabled: z<boolean, boolean, "volatile-defined">;
+    asrResourceId: z<string, string, "volatile-defined">;
+    asrFormat: z<"mp3" | "wav" | "ogg" | "pcm", "mp3" | "wav" | "ogg" | "pcm", "volatile-defined">;
+    asrLanguage: z<string, string, "volatile-defined">;
+    asrChunkSeconds: z<number, number, "volatile-defined">;
+    autoRead: z<boolean, boolean, "volatile-defined">;
     logLevel: z<"debug" | "info" | "warn", "debug" | "info" | "warn", "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     provider: z<"edge" | "volc", "edge" | "volc", "volatile-defined">;
@@ -97,6 +101,12 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     volcFormat: z<string, string, "volatile-defined">;
     volcSampleRate: z<number, number, "volatile-defined">;
     volcEndpoint: z<string, string, "volatile-defined">;
+    asrEnabled: z<boolean, boolean, "volatile-defined">;
+    asrResourceId: z<string, string, "volatile-defined">;
+    asrFormat: z<"mp3" | "wav" | "ogg" | "pcm", "mp3" | "wav" | "ogg" | "pcm", "volatile-defined">;
+    asrLanguage: z<string, string, "volatile-defined">;
+    asrChunkSeconds: z<number, number, "volatile-defined">;
+    autoRead: z<boolean, boolean, "volatile-defined">;
     logLevel: z<"debug" | "info" | "warn", "debug" | "info" | "warn", "defined">;
 }>>, "plain">;
 export declare const DEFAULTS: ConfigShape;

@@ -22,6 +22,7 @@ import { Config, DEFAULTS, resolveConfig, type ConfigShape } from './config.js'
 import { synthesizeEdge } from './edge.js'
 import { transcribeAudio } from './asr.js'
 import { mp3Duration } from './mp3.js'
+import { sanitizeForSpeech } from './text.js'
 import { LiveConfig } from './liveconfig.js'
 import { UtteranceQueue, type Utterance, type PendingResult } from './queue.js'
 import { ProviderRegistry, type SpeakOptions, type SpeakResult, type TtsProvider } from './providers.js'
@@ -131,6 +132,28 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
   registry.register(edgeProvider(queue, config, audio))
   registry.register(volcProvider(queue, config, audio))
 
+  /** 最近读过的文本（60 秒内去重：同一句话不重复念，自动朗读也不会盖掉 tts_speak） */
+  const recentlySpoken: Array<{ text: string; at: number }> = []
+  const normalizeSpoken = (text: string): string => text.replace(/[\s\p{P}\p{S}]/gu, '')
+  const spokenBefore = (text: string): boolean => {
+    const key = normalizeSpoken(text)
+    if (key === '') return true
+    const now = Date.now()
+    for (let index = recentlySpoken.length - 1; index >= 0; index -= 1) {
+      const item = recentlySpoken[index]
+      if (item === undefined) continue
+      if (now - item.at > 60_000) { recentlySpoken.splice(index, 1); continue }
+      const seen = normalizeSpoken(item.text)
+      // 完全相同，或一句包含另一句（模型「念一段」再给总结这种）都算重复
+      if (seen === key || seen.includes(key) || key.includes(seen)) return true
+    }
+    return false
+  }
+  const markSpoken = (text: string): void => {
+    recentlySpoken.push({ text, at: Date.now() })
+    while (recentlySpoken.length > 10) recentlySpoken.shift()
+  }
+
   /** 解析音频时长并写回 utterance（失败返回 undefined，不影响朗读） */
   const durationOf = async (path: string | undefined, utterance: Utterance): Promise<number | undefined> => {
     if (path === undefined) return undefined
@@ -146,8 +169,8 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
 
   const speak = async (text: string, options: SpeakOptions = {}): Promise<SpeakResult> => {
     if (!config().enabled) throw new Error('TTS 已关闭（设置页 enabled）')
-    const trimmed = text.trim()
-    if (trimmed === '') throw new Error('要念的内容是空的')
+    const trimmed = sanitizeForSpeech(text)
+    if (trimmed === '') throw new Error('要念的内容是空的（清洗后没有可读文本）')
     const clipped = trimmed.length > config().maxChars ? trimmed.slice(0, config().maxChars) + '…' : trimmed
     const provider = registry.get(config().provider)
     if (provider === undefined) {
@@ -158,6 +181,7 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     // 补音频时长：桌宠口型 / 进度条 / 事件订阅者都要用；解析失败也不影响朗读
     const durationMs = await durationOf(result.audioPath, result.utterance)
     if (durationMs !== undefined) result.durationMs = durationMs
+    markSpoken(clipped)
     log('info', '朗读 ' + String(result.utterance.seq) + '：' + result.provider + ' ← ' + clipped.slice(0, 30)
       + (durationMs === undefined ? '' : '（' + (durationMs / 1000).toFixed(1) + 's）'))
     return result
@@ -165,8 +189,8 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
 
   /** 只合成不入队：给 QQ 语音这类"自己拿文件去发"的消费者 */
   const synthesize = async (text: string, options: SpeakOptions = {}): Promise<{ path: string; url: string; provider: string; durationMs?: number }> => {
-    const trimmed = text.trim()
-    if (trimmed === '') throw new Error('要念的内容是空的')
+    const trimmed = sanitizeForSpeech(text)
+    if (trimmed === '') throw new Error('要念的内容是空的（清洗后没有可读文本）')
     const clipped = trimmed.length > config().maxChars ? trimmed.slice(0, config().maxChars) + '…' : trimmed
     const provider = registry.get(config().provider)
     if (provider === undefined) throw new Error('没有这个 TTS 引擎：' + config().provider)
@@ -244,6 +268,11 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     for (const [sessionId, text] of autoReadPending) {
       autoReadPending.delete(sessionId)
       if (text.trim() === '') continue
+      // 60 秒内同义文本已经念过（比如模型刚 tts_speak 过）→ 不重复念
+      if (spokenBefore(text)) {
+        log('debug', '自动朗读跳过（刚念过）: ' + text.slice(0, 24))
+        continue
+      }
       void speak(text, { source: 'autoread' }).catch((error: unknown) => {
         log('debug', '自动朗读失败（' + sessionId + '）: ' + (error instanceof Error ? error.message : String(error)))
       })
@@ -254,8 +283,8 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     if ((event as { type?: string }).type !== 'assistant/message') return
     const sessionId = String((session as { header?: { id?: unknown }; id?: unknown }).header?.id
       ?? (session as { id?: unknown }).id ?? '')
-    const skip = config().autoReadSkipPrefix.split(/[,，\s]+/).map(part => part.trim()).filter(part => part !== '')
-    if (skip.some(prefix => sessionId.startsWith(prefix))) return
+    // QQ 通道的会话固定跳过：那边由 napcat 自己发语音，这里再念一遍就是重复
+    if (sessionId.startsWith('napcat-')) return
     const payload = ((event as { payload?: unknown }).payload ?? (event as { data?: unknown }).data ?? {}) as Record<string, unknown>
     const message = (payload.message ?? payload) as { content?: unknown }
     const content = message.content
@@ -327,7 +356,7 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
                   return
                 }
                 const made = await synthesize(text, { source: 'audition' })
-                json({ url: made.url, provider: made.provider, text, size: (() => { try { return readFileSync(audio.resolve(made.url.split('/').pop() ?? '') ?? '').length } catch { return 0 } })() })
+                json({ url: made.url, provider: made.provider, text, durationMs: made.durationMs, size: (() => { try { return readFileSync(audio.resolve(made.url.split('/').pop() ?? '') ?? '').length } catch { return 0 } })() })
               } catch (error) {
                 json({ error: error instanceof Error ? error.message : String(error) })
               }

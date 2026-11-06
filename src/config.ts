@@ -61,8 +61,6 @@ export interface ConfigShape {
 
   /** 自动朗读模型回复 */
   autoRead: boolean
-  /** 自动朗读时跳过哪些会话 id 前缀（逗号分隔，默认跳过 QQ 通道） */
-  autoReadSkipPrefix: string
 }
 
 export const Config = z.object({
@@ -105,6 +103,23 @@ export const Config = z.object({
   volcEndpoint: z.string().default('')
     .description('接口地址（留空=官方 /api/v3/plan/tts/unidirectional）').volatile(),
 
+  // ── 语音识别（火山 ASR）──
+  // 必须在 schema 里且带 .volatile()，否则设置页保存会被拒（Config field is not volatile）
+  asrEnabled: z.boolean().default(true)
+    .description('语音识别总开关（把收到的语音转成文字）').volatile(),
+  asrResourceId: z.string().default('volc.seedasr.sauc.duration')
+    .description('识别资源 ID（豆包流式语音识别 2.0 小时版）').volatile(),
+  asrFormat: z.union(['mp3', 'wav', 'ogg', 'pcm'] as const).default('mp3')
+    .description('音频容器格式（默认 mp3）').volatile(),
+  asrLanguage: z.string().default('')
+    .description('识别语言，留空自动（中英 / 粤语 / 四川话等）').volatile(),
+  asrChunkSeconds: z.natural().min(3).max(60).default(12)
+    .description('单段识别上限（秒），超过自动分段').volatile(),
+
+  // ── 自动朗读 ──
+  autoRead: z.boolean().default(false)
+    .description('把模型回复合成成语音再播放一遍（和 QQ 语音用同一套文本清洗与音色；关=只有模型主动调 tts_speak 或点试听时才出声）').volatile(),
+
   logLevel: z.union(['debug', 'info', 'warn'] as const).default('info'),
 })
 
@@ -134,7 +149,6 @@ export const DEFAULTS: ConfigShape = {
   asrLanguage: '',
   asrChunkSeconds: 12,
   autoRead: false,
-  autoReadSkipPrefix: 'napcat-',
 }
 
 /** 把任意宿主传进来的值安全地变成字符串（BOM/类型错乱/undefined 都兜住） */
