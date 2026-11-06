@@ -360,7 +360,7 @@
               next[field.key] = value
             }
             await unwrap(await remote.settings.update(NS, next, row ? row.revision : revision))
-            setMessage({ ok: true, text: '已保存（写入 profile 的 cordis.patch.yml，插件会热重载）' })
+            setMessage({ ok: true, text: '已保存（写入 profile 的 cordis.patch.yml；插件会自动重读配置，几秒内生效，无需重启）' })
             await load()
           } catch (error) {
             setMessage({ ok: false, text: '保存失败：' + String(error && error.message ? error.message : error) })

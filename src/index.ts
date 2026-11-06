@@ -20,6 +20,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { AudioStore } from './audio.js'
 import { Config, DEFAULTS, resolveConfig, type ConfigShape } from './config.js'
 import { synthesizeEdge } from './edge.js'
+import { LiveConfig } from './liveconfig.js'
 import { UtteranceQueue, type Utterance, type PendingResult } from './queue.js'
 import { ProviderRegistry, type SpeakOptions, type SpeakResult, type TtsProvider } from './providers.js'
 import { registerTools } from './tools.js'
@@ -105,8 +106,11 @@ function volcProvider(queue: UtteranceQueue, config: () => ConfigShape, audio: A
 }
 
 export function apply(ctx: Context, rawConfig: ConfigShape): void {
-  const config = resolveConfig(rawConfig)
-  const threshold = LEVEL_RANK[config.logLevel] ?? 1
+  const initial = resolveConfig(rawConfig)
+  const live = new LiveConfig({ initial, log: (level, message) => { if ((LEVEL_RANK[level] ?? 1) >= (LEVEL_RANK[initial.logLevel] ?? 1)) console.log('[dsh-tts][' + level + '] ' + message) } })
+  /** 每次调用都拿最新配置（宿主写回 YAML 后自动生效，不用重启） */
+  const config = (): ConfigShape => live.get()
+  const threshold = LEVEL_RANK[initial.logLevel] ?? 1
   const log = (level: 'debug' | 'info' | 'warn', message: string): void => {
     if ((LEVEL_RANK[level] ?? 1) < threshold) return
     const host = ctx as unknown as { logger?: (level: string, message: string) => void }
@@ -117,22 +121,22 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
   const dshHome = process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== ''
     ? process.env.DSH_HOME
     : join(homedir(), '.dsh')
-  const audioDir = config.audioDir.trim() !== '' ? config.audioDir.trim() : join(dshHome, 'dsh-tts', 'audio')
-  const audio = new AudioStore({ dir: audioDir, keep: config.audioKeep, log })
+  const audioDir = initial.audioDir.trim() !== '' ? initial.audioDir.trim() : join(dshHome, 'dsh-tts', 'audio')
+  const audio = new AudioStore({ dir: audioDir, keep: initial.audioKeep, log })
 
-  const queue = new UtteranceQueue(config.queueSize)
+  const queue = new UtteranceQueue(initial.queueSize)
   const registry = new ProviderRegistry({ log })
-  registry.register(edgeProvider(queue, () => config, audio))
-  registry.register(volcProvider(queue, () => config, audio))
+  registry.register(edgeProvider(queue, config, audio))
+  registry.register(volcProvider(queue, config, audio))
 
   const speak = async (text: string, options: SpeakOptions = {}): Promise<SpeakResult> => {
-    if (!config.enabled) throw new Error('TTS 已关闭（设置页 enabled）')
+    if (!config().enabled) throw new Error('TTS 已关闭（设置页 enabled）')
     const trimmed = text.trim()
     if (trimmed === '') throw new Error('要念的内容是空的')
-    const clipped = trimmed.length > config.maxChars ? trimmed.slice(0, config.maxChars) + '…' : trimmed
-    const provider = registry.get(config.provider)
+    const clipped = trimmed.length > config().maxChars ? trimmed.slice(0, config().maxChars) + '…' : trimmed
+    const provider = registry.get(config().provider)
     if (provider === undefined) {
-      throw new Error('没有这个 TTS 引擎：' + config.provider + '（可选：' + registry.list().map(item => item.id).join('/') + '）')
+      throw new Error('没有这个 TTS 引擎：' + config().provider + '（可选：' + registry.list().map(item => item.id).join('/') + '）')
     }
     const placeholder: Utterance = { seq: 0, text: clipped, source: options.source ?? 'agent', createdAt: Date.now() }
     const result = await provider.speak(clipped, options, placeholder)
@@ -144,20 +148,20 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
   const synthesize = async (text: string, options: SpeakOptions = {}): Promise<{ path: string; url: string; provider: string }> => {
     const trimmed = text.trim()
     if (trimmed === '') throw new Error('要念的内容是空的')
-    const clipped = trimmed.length > config.maxChars ? trimmed.slice(0, config.maxChars) + '…' : trimmed
-    const provider = registry.get(config.provider)
-    if (provider === undefined) throw new Error('没有这个 TTS 引擎：' + config.provider)
+    const clipped = trimmed.length > config().maxChars ? trimmed.slice(0, config().maxChars) + '…' : trimmed
+    const provider = registry.get(config().provider)
+    if (provider === undefined) throw new Error('没有这个 TTS 引擎：' + config().provider)
     if (provider.info.side !== 'server') {
-      throw new Error('引擎 ' + config.provider + ' 在浏览器里发声，拿不到音频文件；发 QQ 语音请用 edge 或 volc')
+      throw new Error('引擎 ' + config().provider + ' 在浏览器里发声，拿不到音频文件；发 QQ 语音请用 edge 或 volc')
     }
     const placeholder: Utterance = { seq: 0, text: clipped, source: options.source ?? 'agent', createdAt: Date.now() }
     const result = await provider.speak(clipped, options, placeholder)
     if (result.audioPath === undefined || result.audioUrl === undefined) {
-      throw new Error('引擎 ' + config.provider + ' 没有产出音频文件')
+      throw new Error('引擎 ' + config().provider + ' 没有产出音频文件')
     }
     // 合成专用不进队列：把刚入队的那条撤掉（避免浏览器又念一遍）
     queue.removeLast()
-    return { path: result.audioPath, url: result.audioUrl, provider: config.provider }
+    return { path: result.audioPath, url: result.audioUrl, provider: config().provider }
   }
 
   const api = {
@@ -167,10 +171,10 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     cursor: () => queue.cursor(),
     clear: () => queue.clear(),
     providers: () => registry.list(),
-    voices: (provider?: string) => voicesFor(provider ?? config.provider),
+    voices: (provider?: string) => voicesFor(provider ?? config().provider),
     status: () => ({
-      provider: config.provider,
-      enabled: config.enabled,
+      provider: config().provider,
+      enabled: config().enabled,
       queue: queue.stats(),
       providers: registry.list(),
       audio: audio.stats(),
@@ -227,7 +231,7 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
             const text = url.searchParams.get('text') ?? '你好，这是语音试听。'
             void (async () => {
               try {
-                const provider = registry.get(config.provider)
+                const provider = registry.get(config().provider)
                 if (provider === undefined || provider.info.side === 'client') {
                   json({ browser: true, text })
                   return
@@ -241,12 +245,12 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
             return
           }
           if (url.pathname === '/dsh-tts/api/voices') {
-            const provider = url.searchParams.get('provider') ?? config.provider
+            const provider = url.searchParams.get('provider') ?? config().provider
             json({ provider, voices: voicesFor(provider) })
             return
           }
           if (url.pathname === '/dsh-tts/api/info') {
-            json({ config: { ...config, volcApiKey: config.volcApiKey === '' ? '' : '***' }, ...api.status() })
+            json({ config: { ...config(), volcApiKey: config().volcApiKey === '' ? '' : '***' }, ...api.status() })
             return
           }
           response.statusCode = 404
@@ -296,11 +300,11 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     log('warn', '挂载 /dsh-tts 路由失败: ' + (error instanceof Error ? error.message : String(error)))
   }
 
-  log('info', 'dsh-tts 已加载（引擎=' + config.provider + '，可用：' + registry.list().map(item => item.id).join('/') + '）')
-  if (config.provider === 'volc' && config.volcApiKey === '') {
+  log('info', 'dsh-tts 已加载（引擎=' + config().provider + '，可用：' + registry.list().map(item => item.id).join('/') + '）')
+  if (config().provider === 'volc' && config().volcApiKey === '') {
     log('warn', '引擎选了火山方舟，但 API Key 还没填，tts_speak 会失败')
   }
-  if (config.provider === DEFAULTS.provider) {
+  if (config().provider === DEFAULTS.provider) {
     log('debug', '默认引擎 Edge TTS：免费免 key，直接能用')
   }
 }

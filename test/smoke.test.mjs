@@ -98,3 +98,43 @@ test('音频仓：落盘、按名字解析、拒绝路径穿越、超量清理',
   assert.equal(stats.count, 2, 'keep=2 时只留两个')
   await rm(dir, { recursive: true, force: true })
 })
+test('配置热更新：profile YAML 改了，运行中的插件立刻读到新值', async () => {
+  const { mkdtemp, mkdir, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const root = await mkdtemp(join(tmpdir(), 'dshhome-'))
+  await mkdir(join(root, 'profiles', 'web'), { recursive: true })
+  const file = join(root, 'profiles', 'web', 'cordis.patch.yml')
+  const write = (provider, voice, maxChars) => writeFile(file, [
+    '- id: dsh-tts',
+    '  name: dsh-tts',
+    '  config:',
+    '    provider: ' + provider,
+    '    edgeVoice: ' + voice,
+    '    maxChars: ' + String(maxChars),
+  ].join('\n'), 'utf8')
+  await write('edge', 'zh-CN-XiaoxiaoNeural', 300)
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = root
+  try {
+    const { LiveConfig, parseTtsBlock } = await import('../lib/liveconfig.js')
+    const { resolveConfig } = await import('../lib/config.js')
+    const live = new LiveConfig({ initial: resolveConfig({}) })
+    assert.equal(live.get().edgeVoice, 'zh-CN-XiaoxiaoNeural', '首次应读到磁盘值')
+    await new Promise(resolve => setTimeout(resolve, 1100))
+    await write('volc', 'zh-CN-liaoning-XiaobeiNeural', 120)
+    const after = live.get()
+    assert.equal(after.provider, 'volc')
+    assert.equal(after.edgeVoice, 'zh-CN-liaoning-XiaobeiNeural')
+    assert.equal(after.maxChars, 120)
+
+    // 解析函数：只取 dsh-tts 块
+    const parsed = parseTtsBlock('- id: dsh-tts\n  config:\n    provider: volc\n    volcApiKey: "ark-1"\n- id: other\n')
+    assert.equal(parsed.provider, 'volc')
+    assert.equal(parsed.volcApiKey, 'ark-1')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await rm(root, { recursive: true, force: true })
+  }
+})
