@@ -20,6 +20,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { AudioStore } from './audio.js'
 import { Config, DEFAULTS, resolveConfig, type ConfigShape } from './config.js'
 import { synthesizeEdge } from './edge.js'
+import { transcribeAudio } from './asr.js'
 import { LiveConfig } from './liveconfig.js'
 import { UtteranceQueue, type Utterance, type PendingResult } from './queue.js'
 import { ProviderRegistry, type SpeakOptions, type SpeakResult, type TtsProvider } from './providers.js'
@@ -164,9 +165,30 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     return { path: result.audioPath, url: result.audioUrl, provider: config().provider }
   }
 
+  /**
+   * 语音识别：把一段音频文件转成文字（火山 ASR）。
+   * 和 TTS 共用 volcApiKey；没配 key / 关掉 asrEnabled 会明确报错，方便通道提示用户。
+   */
+  const transcribe = async (path: string, options: { language?: string } = {}): Promise<{ text: string; elapsedMs: number; provider: 'volc' }> => {
+    const cfg = config()
+    if (!cfg.asrEnabled) throw new Error('语音识别已关闭（设置页 asrEnabled）')
+    if (cfg.volcApiKey === '') throw new Error('语音识别需要 volcApiKey（和火山 TTS 共用）')
+    const result = await transcribeAudio(path, {
+      apiKey: cfg.volcApiKey,
+      resourceId: cfg.asrResourceId,
+      format: cfg.asrFormat,
+      language: options.language ?? cfg.asrLanguage,
+      chunkSeconds: cfg.asrChunkSeconds,
+      log,
+    })
+    log('info', '语音识别完成：' + result.text.slice(0, 40) + '（' + String(result.elapsedMs) + 'ms）')
+    return { text: result.text, elapsedMs: result.elapsedMs, provider: 'volc' }
+  }
+
   const api = {
     speak,
     synthesize,
+    transcribe,
     pending: (since = 0): PendingResult => queue.pending(since),
     cursor: () => queue.cursor(),
     clear: () => queue.clear(),
@@ -189,7 +211,7 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     log('debug', '宿主不支持 provide(dshTts)，跳过服务注册（工具仍可用）')
   }
 
-  registerTools(ctx, { queue, registry, speak, status: api.status, log })
+  registerTools(ctx, { queue, registry, speak, status: api.status, log , transcribe })
 
   // HTTP：待播队列 + 音频文件
   try {

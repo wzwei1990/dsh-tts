@@ -3,6 +3,7 @@
  *   - tts_speak：把一段文字交给语音引擎念出来
  *   - tts_status：看当前引擎、队列长度、可用引擎
  *   - tts_clear：清空待播队列（不想让它把积压的话一次念完）
+ *   - tts_transcribe：把一段音频（QQ 语音等）转成文字（火山 ASR）
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -16,6 +17,8 @@ export interface ToolDeps {
   speak: (text: string, options?: { rate?: number; volume?: number; pitch?: number; language?: string; voice?: string; source?: string }) => Promise<SpeakResult>
   status: () => { provider: string; enabled: boolean; queue: { length: number; seq: number; dropped: number }; providers: Array<{ id: string; label: string; side: string }> }
   log: (level: 'debug' | 'info' | 'warn', message: string) => void
+  /** 语音识别（火山 ASR）：音频文件 → 文本 */
+  transcribe: (path: string, options?: { language?: string }) => Promise<{ text: string; elapsedMs: number; provider: string }>
 }
 
 function textOutput() {
@@ -79,6 +82,24 @@ export function registerTools(ctx: Context, deps: ToolDeps): void {
       const before = deps.queue.stats().length
       deps.queue.clear()
       return '已清空待播队列（丢掉 ' + String(before) + ' 条）'
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'tts_transcribe',
+    description: '把一段本地音频文件转成文字（火山方舟语音识别；QQ 语音、录音都能用）。返回识别文本。',
+    parameters: {
+      path: { type: 'string', required: true, description: '音频文件路径（mp3/wav/ogg/pcm 等）' },
+      language: { type: 'string', description: '语言，留空自动（中英 / 粤语 / 四川话等）' },
+    },
+    output: textOutput(),
+    isConcurrencySafe: () => true,
+    execute: async args => {
+      const input = args as { path: string; language?: string }
+      const result = await deps.transcribe(input.path, { language: input.language })
+      return result.text === ''
+        ? '（音频里没识别出文字）'
+        : '识别（' + String(result.elapsedMs) + 'ms）：' + result.text
     },
   }))
 }

@@ -43,6 +43,16 @@ export interface ConfigShape {
     /** 接口地址（留空=官方 v3） */
     volcEndpoint: string;
     logLevel: 'debug' | 'info' | 'warn';
+    /** 语音识别开关（火山 ASR，和 TTS 共用 volcApiKey） */
+    asrEnabled: boolean;
+    /** 识别资源 id：豆包流式语音识别 2.0 小时版 */
+    asrResourceId: string;
+    /** 音频容器格式 */
+    asrFormat: 'mp3' | 'wav' | 'ogg' | 'pcm';
+    /** 识别语言（空 = 自动） */
+    asrLanguage: string;
+    /** 单段识别上限（秒） */
+    asrChunkSeconds: number;
 }
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     provider: z<"edge" | "volc", "edge" | "volc", "volatile-defined">;

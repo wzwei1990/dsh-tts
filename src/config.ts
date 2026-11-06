@@ -47,6 +47,17 @@ export interface ConfigShape {
   volcEndpoint: string
 
   logLevel: 'debug' | 'info' | 'warn'
+
+  /** 语音识别开关（火山 ASR，和 TTS 共用 volcApiKey） */
+  asrEnabled: boolean
+  /** 识别资源 id：豆包流式语音识别 2.0 小时版 */
+  asrResourceId: string
+  /** 音频容器格式 */
+  asrFormat: 'mp3' | 'wav' | 'ogg' | 'pcm'
+  /** 识别语言（空 = 自动） */
+  asrLanguage: string
+  /** 单段识别上限（秒） */
+  asrChunkSeconds: number
 }
 
 export const Config = z.object({
@@ -112,6 +123,11 @@ export const DEFAULTS: ConfigShape = {
   volcSampleRate: 24000,
   volcEndpoint: '',
   logLevel: 'info',
+  asrEnabled: true,
+  asrResourceId: 'volc.seedasr.sauc.duration',
+  asrFormat: 'mp3',
+  asrLanguage: '',
+  asrChunkSeconds: 12,
 }
 
 /** 把任意宿主传进来的值安全地变成字符串（BOM/类型错乱/undefined 都兜住） */
