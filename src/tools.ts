@@ -3,7 +3,7 @@
  *   - tts_speak：把一段文字交给语音引擎念出来
  *   - tts_status：看当前引擎、队列长度、可用引擎
  *   - tts_clear：清空待播队列（不想让它把积压的话一次念完）
- *   - tts_transcribe：把一段音频（QQ 语音等）转成文字（火山 ASR）
+ *   - tts_transcribe：把一段音频（QQ 语音等）转成文字（DeepSeek ASR 默认 / 火山 ASR 可选）
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -87,10 +87,10 @@ export function registerTools(ctx: Context, deps: ToolDeps): void {
 
   ctx.tools.register(defineTool({
     name: 'tts_transcribe',
-    description: '把一段本地音频文件转成文字（火山方舟语音识别；QQ 语音、录音都能用）。返回识别文本。',
+    description: '把一段本地音频文件转成文字（DeepSeek 官方语音识别为默认，火山 ASR 可选；QQ 语音、录音都能用）。返回识别文本。',
     parameters: {
       path: { type: 'string', required: true, description: '音频文件路径（mp3/wav/ogg/pcm 等）' },
-      language: { type: 'string', description: '语言，留空自动（中英 / 粤语 / 四川话等）' },
+      language: { type: 'string', description: '语言提示（仅火山 ASR 生效；DeepSeek 自动识别 21 种语言，忽略此参数）' },
     },
     output: textOutput(),
     isConcurrencySafe: () => true,

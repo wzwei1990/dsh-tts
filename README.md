@@ -8,6 +8,7 @@
 |---|---|---|---|
 | **edge**（默认） | 免费、免 key | 无 | 服务端合成 mp3 → 浏览器播放 |
 | **volc**（火山方舟 / 豆包语音合成 2.0） | 按量计费 | 方舟「专属 API Key」 | 服务端合成 mp3 → 浏览器播放 |
+| **deepseek**（官方语音 API，2026-11-13 开放） | TTS 限时 5 折 ¥1.5/万计费字符（中文 1 字 = 2 计费字符）；ASR ¥0.39/小时 | DeepSeek API Key（设置页 `deepseekApiKey` 或环境变量 `DEEPSEEK_API_KEY`） | 服务端合成 **wav** → 浏览器播放 |
 | **browser** | 免费 | 无 | 浏览器本地 `speechSynthesis` |
 
 ## 安装
@@ -109,3 +110,34 @@ tts.status()
 ## 许可
 
 MIT
+
+## DeepSeek 官方语音（TTS / ASR）
+
+官方 2026-11-13 开放的语音接口已接入（[TTS 文档](https://api-docs.deepseek.com/zh-cn/guides/tts) / [ASR 文档](https://api-docs.deepseek.com/zh-cn/guides/asr)）。
+
+**TTS**
+
+| 项 | 说明 |
+| --- | --- |
+| 端点 | `POST https://api.deepseek.com/v1/tools/tts` |
+| 音色 | 只有 `stella`（女，默认）/ `tide`（男）；**无情感、无语速、无克隆** |
+| 语种 | 普通话/粤语/英/日/韩/马来/阿拉伯/印尼/泰/越，按文本自动识别（无语言参数） |
+| 上限 | 单请求 ≤1 万**计费字符**（中文按 2 计）、请求体 ≤64 KiB、单请求最多 30 分钟音频 |
+| 输出 | 插件内统一用 `format=pcm` 分片请求 → 拼成一个 **WAV**（24kHz/16bit/单声道） |
+| 计费 | 刊例 ¥3/万计费字符，限时 5 折 ¥1.5 |
+
+**ASR**（设置页 `asrProvider=deepseek` 切换）
+
+| 项 | 说明 |
+| --- | --- |
+| 端点 | `POST https://api.deepseek.com/v1/tools/asr`（multipart `file`） |
+| 输入 | 16 位 PCM WAV 或 Ogg Opus；插件内先用 ffmpeg 统一转 16k 单声道 WAV |
+| 上限 | **≤120 秒 / ≤8 MiB**；超长自动按 110 秒切片，逐段识别后拼接文本 |
+| 输出 | `{ text, duration_ms }`，**无时间戳、无说话人** → 字幕/逐句对齐仍请用 `asrProvider=volc` |
+| 计费 | 刊例 ¥0.78/小时，限时 5 折 ¥0.39 |
+
+**注意**
+
+- `asrProvider` 与 TTS 的 `provider` 相互独立：可以「火山 TTS + DeepSeek ASR」混搭。
+- DeepSeek TTS 输出 wav，`tts` 的时长解析已支持 wav 头；QQ 语音发送若要求 mp3/amr，仍建议保留 edge/volc。
+- 429/503/504 会直接抛错并带原因，由调用方决定是否回落到其它引擎。

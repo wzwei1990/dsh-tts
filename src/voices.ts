@@ -89,8 +89,14 @@ export const VOLC_SPEAKERS: VoiceOption[] = [
   { id: 'ICL_uranus_zh_female_wenwanshanshan_tob', label: '温婉珊珊 2.0', locale: 'zh-CN' },
 ]
 
+export const DEEPSEEK_VOICES: VoiceOption[] = [
+  { id: 'stella', label: '海星 · 女声（默认）', locale: 'zh-CN' },
+  { id: 'tide', label: '暗潮 · 男声', locale: 'zh-CN' },
+]
+
 export function voicesFor(provider: string): VoiceOption[] {
   if (provider === 'volc') return VOLC_SPEAKERS
   if (provider === 'edge') return EDGE_VOICES
+  if (provider === 'deepseek') return DEEPSEEK_VOICES
   return []
 }

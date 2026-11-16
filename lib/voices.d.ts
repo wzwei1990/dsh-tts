@@ -19,4 +19,5 @@ export interface VoiceOption {
 export declare const EDGE_VOICES: VoiceOption[];
 /** 火山方舟「豆包语音合成 2.0」：性别=女 + 中英混（控制台 ListSpeakers 实测 54 个） */
 export declare const VOLC_SPEAKERS: VoiceOption[];
+export declare const DEEPSEEK_VOICES: VoiceOption[];
 export declare function voicesFor(provider: string): VoiceOption[];

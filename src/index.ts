@@ -12,6 +12,7 @@
  * 对外契约：ctx.provide('dshTts', { speak, pending, cursor, clear, providers, status })
  */
 import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -21,6 +22,8 @@ import { AudioStore } from './audio.js'
 import { Config, DEFAULTS, resolveConfig, type ConfigShape } from './config.js'
 import { synthesizeEdge } from './edge.js'
 import { transcribeAudio } from './asr.js'
+import { synthesizeDeepseek, readWavHeader, pcmDurationMs } from './deepseek-tts.js'
+import { transcribeDeepseek } from './deepseek-asr.js'
 import { mp3Duration } from './mp3.js'
 import { sanitizeForSpeech } from './text.js'
 import { LiveConfig } from './liveconfig.js'
@@ -40,6 +43,30 @@ export const inject = ['tools', 'webServer']
 const LEVEL_RANK: Record<string, number> = { debug: 0, info: 1, warn: 2 }
 
 /** 音色解析：显式传参 > 自定义输入 > 下拉选择 */
+/**
+ * 取 DeepSeek API Key：设置页显式填写 → 宿主凭据服务（ctx.credentials，读 ~/.dsh/.credentials.yaml
+ * 的 DEEPSEEK_API_KEY，与模型 provider 同一把）→ 环境变量。
+ * 这样装了插件就能直接用模型那把 key，不需要用户再填一遍。
+ */
+async function resolveDeepseekKey(ctx: Context, explicit: string): Promise<string> {
+  const own = explicit.trim()
+  if (own !== '') return own
+  try {
+    const holder = ctx as unknown as {
+      get?: (name: string) => unknown
+      credentials?: { resolve?: (ref: string) => Promise<{ value?: unknown } | undefined> }
+    }
+    const service = (holder.get?.('credentials') ?? holder.credentials) as
+      | { resolve?: (ref: string) => Promise<{ value?: unknown } | undefined> }
+      | undefined
+    const resolved = await service?.resolve?.('DEEPSEEK_API_KEY')
+    if (resolved?.value !== undefined && resolved.value !== null && String(resolved.value) !== '') return String(resolved.value)
+  } catch {
+    // 宿主没提供服务就退回环境变量
+  }
+  return process.env.DEEPSEEK_API_KEY ?? ''
+}
+
 function resolveVoice(explicit: string | undefined, selected: string, custom: string): string {
   if (explicit !== undefined && explicit !== '') return explicit
   if (selected === '__custom__') return custom.trim() !== '' ? custom.trim() : 'zh-CN-XiaoxiaoNeural'
@@ -108,6 +135,36 @@ function volcProvider(queue: UtteranceQueue, config: () => ConfigShape, audio: A
   }
 }
 
+function deepseekProvider(ctx: Context, queue: UtteranceQueue, config: () => ConfigShape, audio: AudioStore): TtsProvider {
+  return {
+    info: { id: 'deepseek', label: 'DeepSeek 官方 TTS（stella / tide）', side: 'server' },
+    async speak(text, options, utterance) {
+      const cfg = config()
+      const result = await synthesizeDeepseek(text, {
+        apiKey: await resolveDeepseekKey(ctx, cfg.deepseekApiKey),
+        voiceId: resolveVoice(options.voice, cfg.deepseekVoice, ''),
+        ...(cfg.deepseekBaseUrl !== '' ? { baseUrl: cfg.deepseekBaseUrl } : {}),
+      })
+      const saved = audio.save(result.audio, result.extension)
+      const queued = queue.push({
+        text,
+        source: options.source ?? utterance.source,
+        audioUrl: saved.url,
+      })
+      queued.durationMs = result.durationMs
+      return {
+        provider: 'deepseek',
+        side: 'server',
+        utterance: queued,
+        audioUrl: saved.url,
+        audioPath: audio.resolve(saved.file),
+        durationMs: result.durationMs,
+        note: '已合成 ' + String(Math.round(result.durationMs / 100) / 10) + 's 音频（' + cfg.deepseekVoice + '，' + String(result.chunks) + ' 段 / ' + String(result.billed) + ' 计费字符）',
+      }
+    },
+  }
+}
+
 export function apply(ctx: Context, rawConfig: ConfigShape): void {
   const initial = resolveConfig(rawConfig)
   const live = new LiveConfig({ initial, log: (level, message) => { if ((LEVEL_RANK[level] ?? 1) >= (LEVEL_RANK[initial.logLevel] ?? 1)) console.log('[dsh-tts][' + level + '] ' + message) } })
@@ -131,6 +188,7 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
   const registry = new ProviderRegistry({ log })
   registry.register(edgeProvider(queue, config, audio))
   registry.register(volcProvider(queue, config, audio))
+  registry.register(deepseekProvider(ctx, queue, config, audio))
 
   /** 最近读过的文本（60 秒内去重：同一句话不重复念，自动朗读也不会盖掉 tts_speak） */
   const recentlySpoken: Array<{ text: string; at: number }> = []
@@ -158,6 +216,15 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
   const durationOf = async (path: string | undefined, utterance: Utterance): Promise<number | undefined> => {
     if (path === undefined) return undefined
     try {
+      // DeepSeek 返回的是 WAV：直接读头算时长（mp3Duration 只认 mp3）
+      if (/\.wav$/i.test(path)) {
+        const header = readWavHeader(await readFile(path))
+        if (header !== undefined) {
+          const durationMs = pcmDurationMs(header.dataLength, header.sampleRate || 24000)
+          utterance.durationMs = durationMs
+          return durationMs
+        }
+      }
       const info = await mp3Duration(path)
       if (!info.ok) return undefined
       utterance.durationMs = info.durationMs
@@ -212,9 +279,22 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
    * 语音识别：把一段音频文件转成文字（火山 ASR）。
    * 和 TTS 共用 volcApiKey；没配 key / 关掉 asrEnabled 会明确报错，方便通道提示用户。
    */
-  const transcribe = async (path: string, options: { language?: string } = {}): Promise<{ text: string; elapsedMs: number; provider: 'volc' }> => {
+  const transcribe = async (path: string, options: { language?: string } = {}): Promise<{ text: string; elapsedMs: number; provider: 'volc' | 'deepseek' }> => {
     const cfg = config()
     if (!cfg.asrEnabled) throw new Error('语音识别已关闭（设置页 asrEnabled）')
+    if (cfg.asrProvider === 'deepseek') {
+      const apiKey = await resolveDeepseekKey(ctx, cfg.deepseekApiKey)
+      if (apiKey === '') throw new Error('DeepSeek 语音识别需要 API Key（DSH 凭据 DEEPSEEK_API_KEY / 设置页 deepseekApiKey）')
+      const result = await transcribeDeepseek(path, {
+        apiKey,
+        ...(cfg.deepseekBaseUrl !== '' ? { baseUrl: cfg.deepseekBaseUrl } : {}),
+        chunkSeconds: 110,
+        ...(cfg.asrFfmpegPath.trim() !== '' ? { ffmpegPath: cfg.asrFfmpegPath.trim() } : {}),
+        log,
+      })
+      log('info', '语音识别完成（deepseek）：' + result.text.slice(0, 40) + '（' + String(result.elapsedMs) + 'ms / ' + String(result.chunks) + ' 段）')
+      return { text: result.text, elapsedMs: result.elapsedMs, provider: 'deepseek' }
+    }
     if (cfg.volcApiKey === '') throw new Error('语音识别需要 volcApiKey（和火山 TTS 共用）')
     const result = await transcribeAudio(path, {
       apiKey: cfg.volcApiKey,

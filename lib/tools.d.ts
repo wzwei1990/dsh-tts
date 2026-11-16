@@ -3,7 +3,7 @@
  *   - tts_speak：把一段文字交给语音引擎念出来
  *   - tts_status：看当前引擎、队列长度、可用引擎
  *   - tts_clear：清空待播队列（不想让它把积压的话一次念完）
- *   - tts_transcribe：把一段音频（QQ 语音等）转成文字（火山 ASR）
+ *   - tts_transcribe：把一段音频（QQ 语音等）转成文字（DeepSeek ASR 默认 / 火山 ASR 可选）
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { UtteranceQueue } from './queue.js';

@@ -45,6 +45,16 @@ export interface ConfigShape {
   volcSampleRate: number
   /** 接口地址（留空=官方 v3） */
   volcEndpoint: string
+  /** DeepSeek 语音 API Key（留空 = 读环境变量 DEEPSEEK_API_KEY） */
+  deepseekApiKey: string
+  /** DeepSeek 音色：stella（女）/ tide（男），官方只有这两个 */
+  deepseekVoice: string
+  /** DeepSeek 服务地址（留空=官方 api.deepseek.com） */
+  deepseekBaseUrl: string
+  /** 语音识别走哪家：volc（火山，有时间戳能力）/ deepseek（官方，无时间戳） */
+  asrProvider: 'volc' | 'deepseek'
+  /** ffmpeg 可执行文件（留空=PATH 里的 ffmpeg；DeepSeek ASR 需要它转 16k WAV） */
+  asrFfmpegPath: string
 
   logLevel: 'debug' | 'info' | 'warn'
 
@@ -64,7 +74,7 @@ export interface ConfigShape {
 }
 
 export const Config = z.object({
-  provider: z.union(['edge', 'volc'] as const).default('edge')
+  provider: z.union(['edge', 'volc', 'deepseek'] as const).default('edge')
     .description('语音引擎：edge=微软 Edge TTS（免费免 key，默认）；browser=浏览器本地朗读；volc=火山方舟（要 appId/token）').volatile(),
   enabled: z.boolean().default(true)
     .description('允许模型调用 tts_speak 主动朗读').volatile(),
@@ -102,6 +112,16 @@ export const Config = z.object({
     .description('采样率（默认 24000）').volatile(),
   volcEndpoint: z.string().default('')
     .description('接口地址（留空=官方 /api/v3/plan/tts/unidirectional）').volatile(),
+  deepseekApiKey: z.string().role('secret').default('')
+    .description('DeepSeek 语音 API Key（TTS/ASR 共用；留空则读环境变量 DEEPSEEK_API_KEY）').volatile(),
+  deepseekVoice: z.union(['stella', 'tide'] as const).default('stella')
+    .description('DeepSeek 音色：stella=海星（女，默认）/ tide=暗潮（男）；官方暂无情感与语速控制').volatile(),
+  deepseekBaseUrl: z.string().default('')
+    .description('DeepSeek 服务地址（留空=官方 https://api.deepseek.com）').volatile(),
+  asrProvider: z.union(['volc', 'deepseek'] as const).default('deepseek')
+    .description('语音识别引擎：deepseek=官方（默认，¥0.39/小时，整段≤120 秒，自动切分；需 ffmpeg）；volc=火山（流式、可带时间戳）').volatile(),
+  asrFfmpegPath: z.string().default('')
+    .description('ffmpeg 路径（留空=用 PATH 里的 ffmpeg；DeepSeek ASR 需要它把音频转 16k WAV）').volatile(),
 
   // ── 语音识别（火山 ASR）──
   // 必须在 schema 里且带 .volatile()，否则设置页保存会被拒（Config field is not volatile）
@@ -142,6 +162,11 @@ export const DEFAULTS: ConfigShape = {
   volcFormat: 'mp3',
   volcSampleRate: 24000,
   volcEndpoint: '',
+  deepseekApiKey: '',
+  deepseekVoice: 'stella',
+  deepseekBaseUrl: '',
+  asrProvider: 'deepseek',
+  asrFfmpegPath: '',
   logLevel: 'info',
   asrEnabled: true,
   asrResourceId: 'volc.seedasr.sauc.duration',

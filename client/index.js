@@ -41,6 +41,10 @@
           ['zh_female_gaolengyujie_uranus_bigtts', '高冷御姐 2.0 · 女声'],
           ['zh_female_tianmeitaozi_uranus_bigtts', '甜美桃子 2.0 · 女声'],
         ],
+        deepseek: [
+          ['stella', '海星 · 女声（默认）'],
+          ['tide', '暗潮 · 男声'],
+        ],
       }
 
       function buildFields(voices) {
@@ -51,7 +55,7 @@
             key: 'provider',
             label: '语音引擎',
             kind: 'select',
-            options: [['edge', 'Edge TTS（免费免 key，默认）'], ['volc', '火山方舟（豆包音色，要 API Key）']],
+            options: [['edge', 'Edge TTS（免费免 key，默认）'], ['volc', '火山方舟（豆包音色，要 API Key）'], ['deepseek', 'DeepSeek 官方（stella / tide，要 API Key）']],
             hint: '切换只改这个下拉框，不用重启；下次朗读就走新引擎。',
           },
           { key: 'enabled', label: '允许模型主动朗读（tts_speak）', kind: 'boolean' },
@@ -99,6 +103,42 @@
           { key: 'volcSampleRate', label: '采样率', kind: 'number', hint: '默认 24000' },
           { key: 'volcEndpoint', label: '接口地址（留空=官方 v3）', kind: 'text', hint: '一般不用改' },
 
+          { section: 'DeepSeek 官方语音（TTS）' },
+          {
+            key: 'deepseekApiKey',
+            label: 'API Key',
+            kind: 'password',
+            hint: '留空则读环境变量 DEEPSEEK_API_KEY；同一个 key 也用于 DeepSeek 语音识别。',
+          },
+          {
+            key: 'deepseekVoice',
+            label: '音色',
+            kind: 'select',
+            options: (voices.deepseek && voices.deepseek.length > 0 ? voices.deepseek : []).concat([['stella', '海星 · 女声（默认）'], ['tide', '暗潮 · 男声']]).filter((item, index, all) => all.findIndex(other => other[0] === item[0]) === index),
+            hint: '官方目前只有 2 个音色：stella（女）/ tide（男）；不支持语速、情感与音色克隆。',
+          },
+          { key: 'deepseekBaseUrl', label: '接口地址（留空=官方）', kind: 'text', placeholder: 'https://api.deepseek.com', hint: '一般不用改' },
+
+          { section: '语音识别（ASR）' },
+          { key: 'asrEnabled', label: '启用语音识别（把收到的语音转成文字）', kind: 'boolean' },
+          {
+            key: 'asrProvider',
+            label: '识别引擎',
+            kind: 'select',
+            options: [['volc', '火山 ASR（流式，可带时间戳，默认）'], ['deepseek', 'DeepSeek 官方 ASR（整段、≤120 秒、无时间戳）']],
+            hint: '两者独立于上面的 TTS 引擎：可以「火山 TTS + DeepSeek ASR」混搭。',
+          },
+          { key: 'asrFfmpegPath', label: 'ffmpeg 路径（留空=PATH 里的 ffmpeg）', kind: 'text', placeholder: 'ffmpeg', hint: 'DeepSeek ASR 需要 ffmpeg 把音频转成 16k 单声道 WAV；系统 PATH 里有 ffmpeg 就留空。' },
+          { key: 'asrResourceId', label: '火山资源 id', kind: 'text', hint: '默认 volc.seedasr.sauc.duration（仅 asrProvider=volc 时用）' },
+          {
+            key: 'asrFormat',
+            label: '火山音频容器格式',
+            kind: 'select',
+            options: [['mp3', 'mp3'], ['wav', 'wav'], ['ogg', 'ogg'], ['pcm', 'pcm']],
+            hint: '默认 mp3（仅 asrProvider=volc 时用）',
+          },
+          { key: 'asrChunkSeconds', label: '火山单段上限（秒）', kind: 'number', hint: '默认 12，范围 3~60（仅 asrProvider=volc 时用）' },
+          { key: 'asrLanguage', label: '火山识别语言（空=自动）', kind: 'text', placeholder: 'zh-CN', hint: '仅 asrProvider=volc 时用；DeepSeek 自动识别 21 种语言，无语言参数' },
           { section: '日志' },
           {
             key: 'logLevel',

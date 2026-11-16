@@ -42,6 +42,16 @@ export interface ConfigShape {
     volcSampleRate: number;
     /** 接口地址（留空=官方 v3） */
     volcEndpoint: string;
+    /** DeepSeek 语音 API Key（留空 = 读环境变量 DEEPSEEK_API_KEY） */
+    deepseekApiKey: string;
+    /** DeepSeek 音色：stella（女）/ tide（男），官方只有这两个 */
+    deepseekVoice: string;
+    /** DeepSeek 服务地址（留空=官方 api.deepseek.com） */
+    deepseekBaseUrl: string;
+    /** 语音识别走哪家：volc（火山，有时间戳能力）/ deepseek（官方，无时间戳） */
+    asrProvider: 'volc' | 'deepseek';
+    /** ffmpeg 可执行文件（留空=PATH 里的 ffmpeg；DeepSeek ASR 需要它转 16k WAV） */
+    asrFfmpegPath: string;
     logLevel: 'debug' | 'info' | 'warn';
     /** 语音识别开关（火山 ASR，和 TTS 共用 volcApiKey） */
     asrEnabled: boolean;
@@ -57,7 +67,7 @@ export interface ConfigShape {
     autoRead: boolean;
 }
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
-    provider: z<"edge" | "volc", "edge" | "volc", "volatile-defined">;
+    provider: z<"volc" | "deepseek" | "edge", "volc" | "deepseek" | "edge", "volatile-defined">;
     enabled: z<boolean, boolean, "volatile-defined">;
     edgeVoiceCustom: z<string, string, "volatile-defined">;
     volcSpeakerCustom: z<string, string, "volatile-defined">;
@@ -75,6 +85,11 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     volcFormat: z<string, string, "volatile-defined">;
     volcSampleRate: z<number, number, "volatile-defined">;
     volcEndpoint: z<string, string, "volatile-defined">;
+    deepseekApiKey: z<string, string, "volatile-defined">;
+    deepseekVoice: z<"stella" | "tide", "stella" | "tide", "volatile-defined">;
+    deepseekBaseUrl: z<string, string, "volatile-defined">;
+    asrProvider: z<"volc" | "deepseek", "volc" | "deepseek", "volatile-defined">;
+    asrFfmpegPath: z<string, string, "volatile-defined">;
     asrEnabled: z<boolean, boolean, "volatile-defined">;
     asrResourceId: z<string, string, "volatile-defined">;
     asrFormat: z<"mp3" | "wav" | "ogg" | "pcm", "mp3" | "wav" | "ogg" | "pcm", "volatile-defined">;
@@ -83,7 +98,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     autoRead: z<boolean, boolean, "volatile-defined">;
     logLevel: z<"debug" | "info" | "warn", "debug" | "info" | "warn", "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
-    provider: z<"edge" | "volc", "edge" | "volc", "volatile-defined">;
+    provider: z<"volc" | "deepseek" | "edge", "volc" | "deepseek" | "edge", "volatile-defined">;
     enabled: z<boolean, boolean, "volatile-defined">;
     edgeVoiceCustom: z<string, string, "volatile-defined">;
     volcSpeakerCustom: z<string, string, "volatile-defined">;
@@ -101,6 +116,11 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     volcFormat: z<string, string, "volatile-defined">;
     volcSampleRate: z<number, number, "volatile-defined">;
     volcEndpoint: z<string, string, "volatile-defined">;
+    deepseekApiKey: z<string, string, "volatile-defined">;
+    deepseekVoice: z<"stella" | "tide", "stella" | "tide", "volatile-defined">;
+    deepseekBaseUrl: z<string, string, "volatile-defined">;
+    asrProvider: z<"volc" | "deepseek", "volc" | "deepseek", "volatile-defined">;
+    asrFfmpegPath: z<string, string, "volatile-defined">;
     asrEnabled: z<boolean, boolean, "volatile-defined">;
     asrResourceId: z<string, string, "volatile-defined">;
     asrFormat: z<"mp3" | "wav" | "ogg" | "pcm", "mp3" | "wav" | "ogg" | "pcm", "volatile-defined">;
