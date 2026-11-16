@@ -65,7 +65,11 @@ export async function convertToWav(
     child.stderr.on('data', (chunk: Buffer) => err.push(chunk))
     child.on('error', (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') {
-        reject(new Error('语音识别需要 ffmpeg（转 16k WAV）；没找到 ' + ffmpegPath + '，请在设置页配置或装到 PATH'))
+        reject(new Error(
+          'DeepSeek 语音识别需要 ffmpeg 把音频转成 16k 单声道 WAV，但没找到 ' + ffmpegPath + '。'
+          + '两种修法：① 把 ffmpeg 装到 PATH（Windows 可 winget install Gyan.FFmpeg）；'
+          + '② 在 dsh-tts 的配置里填 asrFfmpegPath（写绝对路径，如 D:/tools/ffmpeg/bin/ffmpeg.exe），改完不用重启。',
+        ))
       } else reject(error)
     })
     child.on('close', (code) => {

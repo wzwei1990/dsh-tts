@@ -123,13 +123,6 @@
             options: [['volc', '火山 ASR（流式，可带时间戳，默认）'], ['deepseek', 'DeepSeek 官方 ASR（整段、≤120 秒、无时间戳）']],
             hint: '两者独立于上面的 TTS 引擎：可以「火山 TTS + DeepSeek ASR」混搭。',
           },
-          { key: 'asrFfmpegPath', dependsOn: { key: 'asrProvider', equals: 'deepseek' }, label: 'ffmpeg 路径（留空=PATH 里的 ffmpeg）', kind: 'text', placeholder: 'ffmpeg', hint: 'DeepSeek ASR 需要 ffmpeg 把音频转成 16k 单声道 WAV；系统 PATH 里有 ffmpeg 就留空。' },
-          {
-            label: '火山音频容器格式',
-            kind: 'select',
-            options: [['mp3', 'mp3'], ['wav', 'wav'], ['ogg', 'ogg'], ['pcm', 'pcm']],
-            hint: '默认 mp3（仅 asrProvider=volc 时用）',
-          },
           { section: '日志' },
           {
             key: 'logLevel',
