@@ -72,52 +72,47 @@
             },
             { section: 'Edge TTS' },
           {
-            key: 'edgeVoice',
+            key: 'edgeVoice', dependsOn: { key: 'provider', equals: 'edge' },
             label: '音色（下拉选）',
             kind: 'select',
             options: withCustom(voices.edge),
             hint: '内置清单取自 Edge 官方 voices/list（实测拉取）；要别的选「自定义」。',
           },
-          { key: 'edgeVoiceCustom', label: 'Edge 自定义音色（选「自定义」时生效）', kind: 'text', placeholder: 'zh-CN-XiaoxiaoNeural' },
-          { key: 'edgeRatePercent', label: '语速百分比（+20 = 快 20%）', kind: 'number', hint: '默认 0，范围 -50~100' },
-          { key: 'edgePitchHz', label: '音高 Hz（正数更高）', kind: 'number', hint: '默认 0，范围 -50~50' },
-          { key: 'edgeVolumePercent', label: '音量百分比（0=原始）', kind: 'number', hint: '默认 0，范围 -50~100' },
+          { key: 'edgeVoiceCustom', dependsOn: { key: 'provider', equals: 'edge' }, label: 'Edge 自定义音色（选「自定义」时生效）', kind: 'text', placeholder: 'zh-CN-XiaoxiaoNeural' },
+          { key: 'edgeRatePercent', dependsOn: { key: 'provider', equals: 'edge' }, label: '语速百分比（+20 = 快 20%）', kind: 'number', hint: '默认 0，范围 -50~100' },
+          { key: 'edgePitchHz', dependsOn: { key: 'provider', equals: 'edge' }, label: '音高 Hz（正数更高）', kind: 'number', hint: '默认 0，范围 -50~50' },
+          { key: 'edgeVolumePercent', dependsOn: { key: 'provider', equals: 'edge' }, label: '音量百分比（0=原始）', kind: 'number', hint: '默认 0，范围 -50~100' },
 
           { section: '火山方舟（豆包语音合成 2.0）' },
           {
-            key: 'volcApiKey',
+            key: 'volcApiKey', dependsOn: { key: 'provider', equals: 'volc' },
             label: '专属 API Key',
             kind: 'password',
             hint: '火山方舟控制台 → Agent Plan → API Key。填了它再把引擎切到火山即可。',
           },
-          { key: 'volcResourceId', label: '资源 id', kind: 'text', hint: '豆包语音合成 2.0 = seed-tts-2.0（默认）' },
           {
-            key: 'volcSpeaker',
+            key: 'volcSpeaker', dependsOn: { key: 'provider', equals: 'volc' },
             label: '音色（下拉选）',
             kind: 'select',
             options: withCustom(voices.volc),
             hint: '清单取自官方「豆包语音合成模型 2.0 音色列表」；能否使用取决于你账号的音色授权/资源包。',
           },
-          { key: 'volcSpeakerCustom', label: '火山自定义音色（选「自定义」时生效）', kind: 'text', placeholder: 'zh_female_vv_uranus_bigtts' },
-          { key: 'volcFormat', label: '输出格式（mp3 / wav / pcm）', kind: 'text', hint: '默认 mp3' },
-          { key: 'volcSampleRate', label: '采样率', kind: 'number', hint: '默认 24000' },
-          { key: 'volcEndpoint', label: '接口地址（留空=官方 v3）', kind: 'text', hint: '一般不用改' },
+          { key: 'volcSpeakerCustom', dependsOn: { key: 'provider', equals: 'volc' }, label: '火山自定义音色（选「自定义」时生效）', kind: 'text', placeholder: 'zh_female_vv_uranus_bigtts' },
 
           { section: 'DeepSeek 官方语音（TTS）' },
           {
-            key: 'deepseekApiKey',
+            key: 'deepseekApiKey', dependsOn: { key: 'provider', equals: 'deepseek' },
             label: 'API Key',
             kind: 'password',
             hint: '留空则读环境变量 DEEPSEEK_API_KEY；同一个 key 也用于 DeepSeek 语音识别。',
           },
           {
-            key: 'deepseekVoice',
+            key: 'deepseekVoice', dependsOn: { key: 'provider', equals: 'deepseek' },
             label: '音色',
             kind: 'select',
             options: (voices.deepseek && voices.deepseek.length > 0 ? voices.deepseek : []).concat([['stella', '海星 · 女声（默认）'], ['tide', '暗潮 · 男声']]).filter((item, index, all) => all.findIndex(other => other[0] === item[0]) === index),
             hint: '官方目前只有 2 个音色：stella（女）/ tide（男）；不支持语速、情感与音色克隆。',
           },
-          { key: 'deepseekBaseUrl', label: '接口地址（留空=官方）', kind: 'text', placeholder: 'https://api.deepseek.com', hint: '一般不用改' },
 
           { section: '语音识别（ASR）' },
           { key: 'asrEnabled', label: '启用语音识别（把收到的语音转成文字）', kind: 'boolean' },
@@ -128,17 +123,13 @@
             options: [['volc', '火山 ASR（流式，可带时间戳，默认）'], ['deepseek', 'DeepSeek 官方 ASR（整段、≤120 秒、无时间戳）']],
             hint: '两者独立于上面的 TTS 引擎：可以「火山 TTS + DeepSeek ASR」混搭。',
           },
-          { key: 'asrFfmpegPath', label: 'ffmpeg 路径（留空=PATH 里的 ffmpeg）', kind: 'text', placeholder: 'ffmpeg', hint: 'DeepSeek ASR 需要 ffmpeg 把音频转成 16k 单声道 WAV；系统 PATH 里有 ffmpeg 就留空。' },
-          { key: 'asrResourceId', label: '火山资源 id', kind: 'text', hint: '默认 volc.seedasr.sauc.duration（仅 asrProvider=volc 时用）' },
+          { key: 'asrFfmpegPath', dependsOn: { key: 'asrProvider', equals: 'deepseek' }, label: 'ffmpeg 路径（留空=PATH 里的 ffmpeg）', kind: 'text', placeholder: 'ffmpeg', hint: 'DeepSeek ASR 需要 ffmpeg 把音频转成 16k 单声道 WAV；系统 PATH 里有 ffmpeg 就留空。' },
           {
-            key: 'asrFormat',
             label: '火山音频容器格式',
             kind: 'select',
             options: [['mp3', 'mp3'], ['wav', 'wav'], ['ogg', 'ogg'], ['pcm', 'pcm']],
             hint: '默认 mp3（仅 asrProvider=volc 时用）',
           },
-          { key: 'asrChunkSeconds', label: '火山单段上限（秒）', kind: 'number', hint: '默认 12，范围 3~60（仅 asrProvider=volc 时用）' },
-          { key: 'asrLanguage', label: '火山识别语言（空=自动）', kind: 'text', placeholder: 'zh-CN', hint: '仅 asrProvider=volc 时用；DeepSeek 自动识别 21 种语言，无语言参数' },
           { section: '日志' },
           {
             key: 'logLevel',
@@ -333,7 +324,7 @@
         const [draft, setDraft] = react.useState({})
         const [revision, setRevision] = react.useState(undefined)
         const [message, setMessage] = react.useState(undefined)
-        const [voices, setVoices] = react.useState({ edge: FALLBACK.edge, volc: FALLBACK.volc })
+        const [voices, setVoices] = react.useState({ edge: FALLBACK.edge, volc: FALLBACK.volc, deepseek: FALLBACK.deepseek })
         const [testText, setTestText] = react.useState('你好呀，我是小灯，这是语音试听。')
         const [auditioning, setAuditioning] = react.useState(false)
         const player = react.useMemo(() => createPlayer(), [])
@@ -474,7 +465,21 @@
         return react.createElement('div', { style: style.wrap },
           react.createElement('p', { style: style.hint },
             '默认 Edge TTS（免费免 key）；切火山方舟需要填它的 API Key。试听会用当前引擎真实合成；保存后 1~2 秒自动生效，不用重启。'),
-          fieldList.map((field) => {
+          (() => {
+            const visible = []
+            let pending = null
+            for (const field of fieldList) {
+              if (field.section !== undefined) { pending = field; continue }
+              if (field.dependsOn !== undefined) {
+                const current = draft[field.dependsOn.key]
+                // 配置还没读到时（undefined）先全部显示，读到后再收窄，避免一开始白屏
+                if (current !== undefined && current !== field.dependsOn.equals) continue
+              }
+              if (pending !== null) { visible.push(pending); pending = null }
+              visible.push(field)
+            }
+            return visible
+          })().map((field) => {
             if (field.section !== undefined) {
               return react.createElement('div', {
                 key: 'section:' + field.section,

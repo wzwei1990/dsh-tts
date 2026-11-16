@@ -133,7 +133,7 @@ export const Config = z.object({
     .description('音频容器格式（默认 mp3）').volatile(),
   asrLanguage: z.string().default('')
     .description('识别语言，留空自动（中英 / 粤语 / 四川话等）').volatile(),
-  asrChunkSeconds: z.natural().min(3).max(60).default(12)
+  asrChunkSeconds: z.natural().min(3).max(300).default(60)
     .description('单段识别上限（秒），超过自动分段').volatile(),
 
   // ── 自动朗读 ──
@@ -172,7 +172,7 @@ export const DEFAULTS: ConfigShape = {
   asrResourceId: 'volc.seedasr.sauc.duration',
   asrFormat: 'mp3',
   asrLanguage: '',
-  asrChunkSeconds: 12,
+  asrChunkSeconds: 60,
   autoRead: false,
 }
 

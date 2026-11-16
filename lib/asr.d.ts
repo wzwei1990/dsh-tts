@@ -29,7 +29,9 @@ interface ParsedFrame {
 export declare function parseFrame(data: Buffer): ParsedFrame | undefined;
 /**
  * 识别一段音频文件。
- * 超过 chunkSeconds（默认 12 秒，官方建议 ≤15 秒）就按字节切成几段分别识别再拼接。
+ * 超过 chunkSeconds（默认 60 秒）就按字节切成几段分别识别再拼接。
+ * 注意：官方对这个接口**没有单次时长上限**——「输入大于 15 秒或发完最后一包才返回结果」
+ * 说的是返回时机，不是限制（2026-11-16 按 [大模型流式语音识别](https://www.volcengine.com/docs/6561/1354869) 核对）。
  */
 export declare function transcribeAudio(path: string, options: AsrOptions): Promise<AsrResult>;
 export {};

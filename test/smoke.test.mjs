@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+// 测试隔离（2026-11-16）：插件的 LiveConfig 会监听真实 profile 的 cordis.patch.yml，
+// 于是「用户在设置页把引擎切成 deepseek」会让测试里的 apply({provider:'edge'}) 被磁盘值覆盖，
+// 测试随用户配置漂移（实测：provider=deepseek 时去重用例失败）。把 DSH_HOME 指到临时目录即可隔离。
+{
+  const { mkdtemp } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'dsh-tts-test-home-'))
+  process.env.DSH_HOME = home
+  // candidateFiles() 还会读 homedir()/.dsh，所以 USERPROFILE / HOME 也要一起指走
+  process.env.USERPROFILE = home
+  process.env.HOME = home
+}
+
 test('待播队列：序号单调、since 只取新的、满了丢最旧', async () => {
   const { UtteranceQueue } = await import('../lib/queue.js')
   const queue = new UtteranceQueue(3)
