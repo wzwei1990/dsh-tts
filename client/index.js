@@ -198,6 +198,22 @@
         }
 
         /**
+         * 告诉页面「现在在说话 / 说完了」。
+         *
+         * 用中立的 `dsh:speaking` 事件，而不是直接调用某个桌宠插件：
+         * - dsh-tts 不认识桌宠，桌宠也可能没装 → 没有监听者时 dispatch 是纯 no-op
+         * - 桌宠（或其他想联动的插件）自己 addEventListener 即可，互不依赖
+         * - 派发失败（老浏览器 / 被 CSP 拦）也只是静默跳过，绝不影响朗读本身
+         */
+        const signalSpeaking = (on, extra) => {
+          try {
+            document.dispatchEvent(new CustomEvent('dsh:speaking', { detail: { on, ...(extra || {}) } }))
+          } catch {
+            /* 联动失败不影响播放 */
+          }
+        }
+
+        /**
          * 播一条。返回 { ok, error } —— 不再把失败当成功，
          * 否则会出现"显示已播放但没声音"。
          */
@@ -214,7 +230,12 @@
             return
           }
           let settled = false
-          const finish = (result) => { if (!settled) { settled = true; resolve(result) } }
+          const finish = (result) => {
+            if (settled) return
+            settled = true
+            signalSpeaking(false, { url: item.audioUrl, ok: result.ok === true })
+            resolve(result)
+          }
           audio.onended = () => finish({ ok: true })
           audio.onerror = () => {
             const code = audio.error && audio.error.code
@@ -225,7 +246,7 @@
           try {
             const played = audio.play()
             if (played && typeof played.then === 'function') {
-              played.then(() => { /* 开始播放了，等 onended */ }).catch((error) => {
+              played.then(() => { signalSpeaking(true, { url: item.audioUrl }) }).catch((error) => {
                 const name = error && error.name
                 const hint = name === 'NotAllowedError'
                   ? '浏览器要求先点一下页面才能播放（自动播放被拦）'
