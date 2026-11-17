@@ -291,6 +291,16 @@
             if (!response.ok) return
             const payload = await response.json()
             const items = Array.isArray(payload.items) ? payload.items : []
+            // 服务端重启后队列序号从 1 重新开始，而本地 cursor 还停在旧的大值
+            // → `seq > cursor` 永远为空，自动朗读的条目永远拉不到（2026-11-17 实测踩到）。
+            // 服务端返回的 cursor 比本地小 = 服务端已重启，重置本地 cursor。
+            const serverCursor = typeof payload.cursor === 'number' ? payload.cursor : null
+            if (serverCursor !== null && serverCursor < cursor) {
+              console.warn('[dsh-tts] 队列序号回退（服务端重启过），cursor ' + cursor + ' → ' + serverCursor)
+              cursor = 0
+              saveCursor(0)
+              report('cursor-reset', { from: serverCursor })
+            }
             report('pending', { count: items.length, cursor })
             if (items.length === 0) {
               if (typeof payload.cursor === 'number' && payload.cursor > cursor) saveCursor(payload.cursor)
