@@ -12,4 +12,13 @@
  *   - 表格竖线、多余空行 → 压成顿号/空格
  *   - 只剩标点的行 → 丢掉
  */
-export declare function sanitizeForSpeech(input: string): string;
+export interface SanitizeOptions {
+    /**
+     * 代码块/行内代码的**内容**要不要丢。
+     *
+     * 2026-11-17 起默认 **丢弃**（全链路统一）：桌宠朗读和 QQ 语音念代码都没有意义，
+     * 而且代码会被 TTS 逐字符念成噪音。只有确实想让它念代码时才显式传 `{ dropCode: false }`。
+     */
+    dropCode?: boolean;
+}
+export declare function sanitizeForSpeech(input: string, options?: SanitizeOptions): string;

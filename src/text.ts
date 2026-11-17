@@ -12,12 +12,28 @@
  *   - 表格竖线、多余空行 → 压成顿号/空格
  *   - 只剩标点的行 → 丢掉
  */
-export function sanitizeForSpeech(input: string): string {
+export interface SanitizeOptions {
+  /**
+   * 代码块/行内代码的**内容**要不要丢。
+   *
+   * 2026-11-17 起默认 **丢弃**（全链路统一）：桌宠朗读和 QQ 语音念代码都没有意义，
+   * 而且代码会被 TTS 逐字符念成噪音。只有确实想让它念代码时才显式传 `{ dropCode: false }`。
+   */
+  dropCode?: boolean
+}
+
+export function sanitizeForSpeech(input: string, options: SanitizeOptions = {}): string {
+  // 统一策略：默认丢代码（见 SanitizeOptions.dropCode 的说明）
+  const dropCode = options.dropCode !== false
   let text = input
   // 围栏代码块：保留内容
-  text = text.replace(/```[a-zA-Z0-9+#-]*\n?([\s\S]*?)```/g, '$1')
+  text = dropCode
+    ? text.replace(/```[a-zA-Z0-9+#-]*\n?[\s\S]*?```/g, ' ')
+    : text.replace(/```[a-zA-Z0-9+#-]*\n?([\s\S]*?)```/g, '$1')
   // 行内代码
-  text = text.replace(/`([^`]*)`/g, '$1')
+  text = dropCode
+    ? text.replace(/`[^`]*`/g, ' ')
+    : text.replace(/`([^`]*)`/g, '$1')
   // 图片/链接：[文字](url) → 文字；![alt](url) → 丢掉
   text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, '')
   text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
