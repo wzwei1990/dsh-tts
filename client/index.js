@@ -183,6 +183,13 @@
       }
 
       /** 播放器：只播服务端合成好的音频（edge / volc 都有 audioUrl） */
+      /** 全局播放器单例：队列轮询必须跟页面同寿，不能只在设置面板打开时跑 */
+      let sharedPlayer = null
+      function ensurePlayer() {
+        if (sharedPlayer === null) sharedPlayer = createPlayer()
+        return sharedPlayer
+      }
+
       function createPlayer() {
         let cursor = 0
         let timer
@@ -263,6 +270,8 @@
           }
         })
 
+        /** 被浏览器自动播放策略拦过：下次用户手势后重试 */
+        let blockedByAutoplay = false
         const tick = async () => {
           if (busy) return
           busy = true
@@ -277,7 +286,15 @@
             }
             for (const item of items) {
               const result = await playOne(item)
-              if (!result.ok) console.warn('[dsh-tts] 播放失败: ' + result.error)
+              if (!result.ok) {
+                console.warn('[dsh-tts] 播放失败: ' + result.error)
+                // 自动播放被拦：不推进 cursor，等用户第一次点页面再重试，
+                // 否则这条就被"当成播过了"永久丢掉（2026-11-17 实测踩到）。
+                if (String(result.error).includes('自动播放')) {
+                  blockedByAutoplay = true
+                  break
+                }
+              }
               saveCursor(item.seq)
             }
           } catch (error) {
@@ -295,7 +312,18 @@
         const stop = () => {
           if (timer !== undefined) { clearInterval(timer); timer = undefined }
         }
-        return { start, stop, playOne, getCursor: () => cursor, setCursor: saveCursor }
+        return {
+          start,
+          stop,
+          playOne,
+          /** 用户手势后重试一次（自动播放解锁） */
+          kick: () => {
+            blockedByAutoplay = false
+            void tick()
+          },
+          getCursor: () => cursor,
+          setCursor: saveCursor,
+        }
       }
 
       function renderField(field, value, onChange) {
@@ -341,7 +369,7 @@
         const [voices, setVoices] = react.useState({ edge: FALLBACK.edge, volc: FALLBACK.volc, deepseek: FALLBACK.deepseek })
         const [testText, setTestText] = react.useState('你好呀，我是小灯，这是语音试听。')
         const [auditioning, setAuditioning] = react.useState(false)
-        const player = react.useMemo(() => createPlayer(), [])
+        const player = react.useMemo(() => ensurePlayer(), [])
 
         // 拉音色列表（失败就用内置兜底）
         react.useEffect(() => {
@@ -528,6 +556,22 @@
       const inject = ['slots', 'remote', 'remote.settings']
 
       function apply(ctx) {
+        // 自动朗读的播放器必须随插件常驻启动：之前它只在设置面板 useMemo 里创建，
+        // 面板没打开时队列根本没人拉取 → "试听能响、自动朗读不出声"（2026-11-17 定位）。
+        let disposePlayer = null
+        try {
+          const player = ensurePlayer()
+          player.start()
+          const unlock = () => { player.kick() }
+          document.addEventListener('pointerdown', unlock, { capture: true, once: true })
+          disposePlayer = () => {
+            document.removeEventListener('pointerdown', unlock, { capture: true })
+            player.stop()
+          }
+        } catch (error) {
+          console.warn('[dsh-tts] 全局播放器启动失败: ' + String(error && error.message ? error.message : error))
+        }
+
         const Page = (props) => react.createElement(TtsSettingsPage, Object.assign({}, props, { ctx: ctx }))
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
@@ -535,6 +579,8 @@
           order: 66,
           label: () => '语音（TTS）',
         }, Page))
+
+        return () => { if (typeof disposePlayer === 'function') disposePlayer() }
       }
 
       exports.apply = apply
