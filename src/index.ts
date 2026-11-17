@@ -470,7 +470,11 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
         kind: 'prefix',
         path: '/dsh-tts/api',
         handler: (req, res) => {
-          const request = req as { url?: string }
+          const request = req as {
+            url?: string
+            method?: string
+            on?: (event: string, cb: (chunk: unknown) => void) => void
+          }
           const response = res as {
             setHeader?: (k: string, v: string) => void
             end?: (body?: string) => void
@@ -487,6 +491,17 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
           if (url.pathname === '/dsh-tts/api/pending') {
             const since = Number(url.searchParams.get('since') ?? '0')
             json(queue.pending(Number.isFinite(since) ? since : 0))
+            return
+          }
+          if (url.pathname === '/dsh-tts/api/client-report' && request.method === 'POST' && typeof request.on === 'function') {
+            // 客户端自报状态：排查「服务端说朗读了、浏览器却没声音」时，这一条能直接定位
+            // 是客户端没跑（旧 bundle）、没拉到队列、还是 audio.play() 被拦。
+            let body = ''
+            request.on('data', (chunk: unknown) => { body += String(chunk) })
+            request.on('end', () => {
+              probe('客户端: ' + body.slice(0, 300))
+              json({ ok: true })
+            })
             return
           }
           if (url.pathname === '/dsh-tts/api/test') {

@@ -270,6 +270,17 @@
           }
         })
 
+        /** 把客户端状态报给服务端（写进 autoread-probe.log），便于定位"服务端念了但浏览器没声" */
+        const report = (stage, detail) => {
+          try {
+            void fetch('/dsh-tts/api/client-report', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ stage, detail, at: Date.now() }),
+            })
+          } catch { /* 诊断失败不影响播放 */ }
+        }
+
         /** 被浏览器自动播放策略拦过：下次用户手势后重试 */
         let blockedByAutoplay = false
         const tick = async () => {
@@ -280,12 +291,14 @@
             if (!response.ok) return
             const payload = await response.json()
             const items = Array.isArray(payload.items) ? payload.items : []
+            report('pending', { count: items.length, cursor })
             if (items.length === 0) {
               if (typeof payload.cursor === 'number' && payload.cursor > cursor) saveCursor(payload.cursor)
               return
             }
             for (const item of items) {
               const result = await playOne(item)
+              report('play', { ok: result.ok, error: result.error ?? null, seq: item.seq })
               if (!result.ok) {
                 console.warn('[dsh-tts] 播放失败: ' + result.error)
                 // 自动播放被拦：不推进 cursor，等用户第一次点页面再重试，
@@ -306,6 +319,7 @@
 
         const start = () => {
           if (timer !== undefined) return
+          report('start', { player: 'global-v2', cursor })
           timer = setInterval(() => { void tick() }, POLL_MS)
           void tick()
         }
