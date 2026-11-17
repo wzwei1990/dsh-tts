@@ -338,7 +338,8 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
    * 自动朗读：监听会话事件，把模型的最终回复念出来。
    *
    * - 只认 assistant/message；**带工具调用但含文本的回复也念**（2026-11-17 改）
-   * - 同一会话 900ms 内的多条合并，只念最后一条
+   * - 同一会话 900ms 内的多条合并，只念最后一条（过程性文字照念）
+   * - 清洗后没有汉字（纯英文一句）→ 跳过
    * - 跳过 autoReadSkipPrefix（默认 napcat-，QQ 那边自己发语音，不重复）
    */
   /**
@@ -365,6 +366,12 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
   let autoReadTimer: ReturnType<typeof setTimeout> | undefined
   /** 已念过的消息 id（防止中间轮次的文本重复念） */
   const autoReadSeen = new Set<string>()
+  /**
+   * 「有人在的」会话：见过 user/message 的 session。
+   * 子智能体、记忆工具、定时任务等内部会话不会收到 user/message，
+   * 它们的 assistant 输出不该被念出来（2026-11-17 用户反馈：子智能体/记忆结果也被读了）。
+   */
+  const humanSessions = new Set<string>()
   const autoReadPending = new Map<string, string>()
   const autoReadFlush = (): void => {
     autoReadTimer = undefined
@@ -399,11 +406,21 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     }
   }
   const onSessionEvent = (session: unknown, event: unknown): void => {
-    probe('收到事件 type=' + String((event as { type?: unknown }).type))
+    const eventType = String((event as { type?: unknown }).type)
+    probe('收到事件 type=' + eventType)
     if (!config().autoRead) return
-    if ((event as { type?: string }).type !== 'assistant/message') return
     const sessionId = String((session as { header?: { id?: unknown }; id?: unknown }).header?.id
       ?? (session as { id?: unknown }).id ?? '')
+    if (eventType === 'user/message') {
+      if (sessionId !== '') humanSessions.add(sessionId)
+      return
+    }
+    if (eventType !== 'assistant/message') return
+    // 只念人类会话：子智能体 / 记忆工具 / 定时任务自己的会话一律跳过
+    if (sessionId === '' || !humanSessions.has(sessionId)) {
+      probe('  → 跳过（非人类会话）session=' + sessionId.slice(0, 24))
+      return
+    }
     // QQ 通道的会话固定跳过：那边由 napcat 自己发语音，这里再念一遍就是重复
     if (sessionId.startsWith('napcat-')) return
     const payload = ((event as { payload?: unknown }).payload ?? (event as { data?: unknown }).data ?? {}) as Record<string, unknown>
@@ -413,11 +430,25 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
       + ' msgKeys=' + Object.keys(message as object).join(',')
       + ' contentIsArray=' + String(Array.isArray(content)))
     if (!Array.isArray(content)) return
-    const blocks = content as Array<{ type?: string; text?: string }>
-    // 只按「有没有可念的文本」判断：带工具调用的回复里只要有文本也照念。
-    // （以前是「含 tool-call 就整条跳过」，结果模型边干活边总结的回复永远不念。）
-    const text = blocks.filter(block => block.type === 'text').map(block => String(block.text ?? '')).join('').trim()
-    probe('  blockTypes=' + blocks.map(block => String(block.type)).join(',') + ' textLen=' + text.length)
+    const blocks = content as Array<{
+      type?: string
+      text?: string
+      thinking?: boolean
+      reasoning?: boolean
+      channel?: string
+    }>
+    // 只念「真正的回复正文」，思考/推理内容一律不念：
+    // - 只认 type === 'text'
+    // - 再排除带 thinking/reasoning 标记、或 channel 标注为思考的块
+    //   （模型有时把推理塞进 text 块；2026-11-17 用户反馈：不该读那种"思考"）
+    const isReason = (block: { type?: string; thinking?: boolean; reasoning?: boolean; channel?: string }): boolean =>
+      block.type !== 'text'
+      || block.thinking === true
+      || block.reasoning === true
+      || (typeof block.channel === 'string' && /reason|think/i.test(block.channel))
+    const text = blocks.filter(block => !isReason(block)).map(block => String(block.text ?? '')).join('').trim()
+    probe('  blockTypes=' + blocks.map(block => String(block.type)).join(',')
+      + ' 排除块=' + blocks.filter(isReason).length + ' textLen=' + text.length)
     if (text === '') return
     // 按消息 id 去重：中间轮次的文本不会因为不再被跳过而重复念。
     // 宿主没给 id 时退回「同文本 60 秒内只念一次」（spokenBefore 已有）。
