@@ -281,9 +281,47 @@
           } catch { /* 诊断失败不影响播放 */ }
         }
 
+        /**
+         * 单实例播放锁（Web Locks）。
+         * 多开标签页/窗口时，每个页面都会轮询同一个服务端队列，
+         * 于是同一句会被两个播放器同时拉走 → "重叠播放"（2026-11-17 用户反馈）。
+         * 只有拿到锁的那个页面负责播放；它关掉后，锁自动释放给下一个排队者。
+         */
+        let isLeader = false
+        const LEADER_LOCK = 'dsh-tts:player-leader'
+        const claimLeadership = async () => {
+          const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+          if (locks === undefined || typeof locks.request !== 'function') {
+            isLeader = true
+            return
+          }
+          try {
+            await locks.request(LEADER_LOCK, async () => {
+              isLeader = true
+              report('leader', { tab: true })
+              // 立刻把本地 cursor 对齐到服务端，避免接手时把别的页已经播过的重播一遍
+              try {
+                const res = await fetch('/dsh-tts/api/pending?since=' + String(cursor), { cache: 'no-store' })
+                if (res.ok) {
+                  const payload = await res.json()
+                  if (typeof payload.cursor === 'number' && payload.cursor > cursor) {
+                    cursor = payload.cursor
+                    saveCursor(cursor)
+                  }
+                }
+              } catch { /* 对齐失败就按原 cursor 继续 */ }
+              // 持锁直到页面关闭（不 resolve）
+              await new Promise(() => {})
+            })
+          } catch {
+            isLeader = true
+          }
+        }
+
         /** 被浏览器自动播放策略拦过：下次用户手势后重试 */
         let blockedByAutoplay = false
         const tick = async () => {
+          if (!isLeader) return
           if (busy) return
           busy = true
           try {
@@ -329,7 +367,8 @@
 
         const start = () => {
           if (timer !== undefined) return
-          report('start', { player: 'global-v2', cursor })
+          report('start', { player: 'global-v3', cursor })
+          void claimLeadership()
           timer = setInterval(() => { void tick() }, POLL_MS)
           void tick()
         }

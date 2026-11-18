@@ -372,6 +372,11 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
    * 它们的 assistant 输出不该被念出来（2026-11-17 用户反馈：子智能体/记忆结果也被读了）。
    */
   const humanSessions = new Set<string>()
+  /**
+   * 当前聚焦的人机会话：只有它的回复会被朗读（用户 2026-11-17 要求「聚焦的当前会话」）。
+   * 判定依据 = 最近一次真人 user/message 所属的会话；切换会话但不发消息时无法感知，属已知限制。
+   */
+  let activeHumanSession = ''
   const autoReadPending = new Map<string, string>()
   const autoReadFlush = (): void => {
     autoReadTimer = undefined
@@ -412,13 +417,31 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     const sessionId = String((session as { header?: { id?: unknown }; id?: unknown }).header?.id
       ?? (session as { id?: unknown }).id ?? '')
     if (eventType === 'user/message') {
-      if (sessionId !== '') humanSessions.add(sessionId)
+      // 子智能体的会话也会收到一条 user/message（就是派活用的 prompt），
+      // 所以不能"见过 user/message 就算人类会话"。只有来源是真人（source.kind === 'user'
+      // 或缺省）才登记；子智能体/工具派发的 prompt 来源不是 user（2026-11-17 用户反馈）。
+      const src = (((event as { data?: { source?: unknown } }).data ?? {}) as { source?: { kind?: unknown } }).source
+      const kind = typeof (src as { kind?: unknown })?.kind === 'string' ? String((src as { kind?: string }).kind) : ''
+      probe('  user/message source.kind=' + (kind === '' ? '(none)' : kind))
+      // 用「排除法」而不是白名单：真人来源在各宿主可能叫 user / web / im …，
+      // 但派活来源一定带 subagent / agent / tool / mnemon / job 这类字样。
+      const delegated = /subagent|agent|tool|mnemon|job|task|delegate/i.test(kind)
+      if (sessionId !== '' && !delegated) {
+        humanSessions.add(sessionId)
+        activeHumanSession = sessionId
+        probe('  → 当前聚焦会话=' + sessionId.slice(0, 24))
+      }
       return
     }
     if (eventType !== 'assistant/message') return
     // 只念人类会话：子智能体 / 记忆工具 / 定时任务自己的会话一律跳过
     if (sessionId === '' || !humanSessions.has(sessionId)) {
       probe('  → 跳过（非人类会话）session=' + sessionId.slice(0, 24))
+      return
+    }
+    // 只念聚焦会话：别的会话正在跑也不念（避免两个会话的声音互相干扰）
+    if (activeHumanSession !== '' && sessionId !== activeHumanSession) {
+      probe('  → 跳过（非聚焦会话）session=' + sessionId.slice(0, 24))
       return
     }
     // QQ 通道的会话固定跳过：那边由 napcat 自己发语音，这里再念一遍就是重复
