@@ -339,12 +339,21 @@
               saveCursor(0)
               report('cursor-reset', { from: serverCursor })
             }
-            report('pending', { count: items.length, cursor })
+            // 只在真的拉到条目时上报：每 1.2s 的空轮询会把服务端探针挤掉（2026-11-18 实测 200 行里 187 行是它）
+            if (items.length > 0) report('pending', { count: items.length, cursor })
             if (items.length === 0) {
               if (typeof payload.cursor === 'number' && payload.cursor > cursor) saveCursor(payload.cursor)
               return
             }
             for (const item of items) {
+              // 过期条目不再补播：页面隐藏/后台被节流时队列会积压，
+              // 恢复后一次性补念会表现为"会话早结束了，突然又读两次"（2026-11-18 用户反馈）。
+              const age = typeof item.createdAt === 'number' ? Date.now() - item.createdAt : 0
+              if (age > 120_000) {
+                report('stale-skip', { seq: item.seq, ageMs: age })
+                saveCursor(item.seq)
+                continue
+              }
               const result = await playOne(item)
               report('play', { ok: result.ok, error: result.error ?? null, seq: item.seq })
               if (!result.ok) {

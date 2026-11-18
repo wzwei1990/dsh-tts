@@ -22,3 +22,8 @@ export interface SanitizeOptions {
     dropCode?: boolean;
 }
 export declare function sanitizeForSpeech(input: string, options?: SanitizeOptions): string;
+/**
+ * 切句：按中英文句末标点切，保留标点；过短的碎片（<6 字）并到下一句。
+ * 逐句合成流水线用——第一句先合成就先播，长回复不必等整段。
+ */
+export declare function splitSentences(input: string): string[];

@@ -25,7 +25,7 @@ import { transcribeAudio } from './asr.js'
 import { synthesizeDeepseek, readWavHeader, pcmDurationMs } from './deepseek-tts.js'
 import { transcribeDeepseek } from './deepseek-asr.js'
 import { mp3Duration } from './mp3.js'
-import { sanitizeForSpeech } from './text.js'
+import { sanitizeForSpeech, splitSentences } from './text.js'
 import { LiveConfig } from './liveconfig.js'
 import { UtteranceQueue, type Utterance, type PendingResult } from './queue.js'
 import { ProviderRegistry, type SpeakOptions, type SpeakResult, type TtsProvider } from './providers.js'
@@ -243,14 +243,29 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     if (provider === undefined) {
       throw new Error('没有这个 TTS 引擎：' + config().provider + '（可选：' + registry.list().map(item => item.id).join('/') + '）')
     }
-    const placeholder: Utterance = { seq: 0, text: clipped, source: options.source ?? 'agent', createdAt: Date.now() }
-    const result = await provider.speak(clipped, options, placeholder)
-    // 补音频时长：桌宠口型 / 进度条 / 事件订阅者都要用；解析失败也不影响朗读
-    const durationMs = await durationOf(result.audioPath, result.utterance)
-    if (durationMs !== undefined) result.durationMs = durationMs
+    // 逐句流水线：每句单独合成、单独入队。
+    // 第一句合完就入队（客户端立刻开播），后面的句子在播放期间继续合成；
+    // 长回复不必等整段合成完才开始出声（2026-11-18 参考 dsh-her 的 SpeechQueue）。
+    const sentences = splitSentences(clipped)
+    let result: SpeakResult | undefined
+    if (sentences.length <= 1) {
+      const placeholder: Utterance = { seq: 0, text: clipped, source: options.source ?? 'agent', createdAt: Date.now() }
+      result = await provider.speak(clipped, options, placeholder)
+      const durationMs = await durationOf(result.audioPath, result.utterance)
+      if (durationMs !== undefined) result.durationMs = durationMs
+    } else {
+      for (const sentence of sentences) {
+        const placeholder: Utterance = { seq: 0, text: sentence, source: options.source ?? 'agent', createdAt: Date.now() }
+        const piece = await provider.speak(sentence, options, placeholder)
+        const durationMs = await durationOf(piece.audioPath, piece.utterance)
+        if (durationMs !== undefined) piece.durationMs = durationMs
+        if (result === undefined) result = piece
+      }
+    }
+    if (result === undefined) throw new Error('合成没有产出结果')
     markSpoken(clipped)
     log('info', '朗读 ' + String(result.utterance.seq) + '：' + result.provider + ' ← ' + clipped.slice(0, 30)
-      + (durationMs === undefined ? '' : '（' + (durationMs / 1000).toFixed(1) + 's）'))
+      + (result.durationMs === undefined ? '' : '（' + (result.durationMs / 1000).toFixed(1) + 's）'))
     return result
   }
 
@@ -355,7 +370,7 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
         let prev = ''
         try { prev = await readFile(probePath, 'utf8') } catch { /* 首次没有文件 */ }
         const lines = (prev + entry).split('\n').filter(Boolean)
-        const kept = lines.slice(-200).join('\n') + '\n'
+        const kept = lines.slice(-400).join('\n') + '\n'
         await appendFile(probePath, '')
         const { writeFile } = await import('node:fs/promises')
         await writeFile(probePath, kept, 'utf8')
@@ -412,7 +427,9 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
   }
   const onSessionEvent = (session: unknown, event: unknown): void => {
     const eventType = String((event as { type?: unknown }).type)
-    probe('收到事件 type=' + eventType)
+    // 只记与朗读相关的少数事件，其余（job/registered、step/* …）不落盘，避免刷掉有效记录
+    const interesting = eventType === 'assistant/message' || eventType === 'user/message' || eventType === 'turn/end'
+    if (interesting) probe('收到事件 type=' + eventType)
     if (!config().autoRead) return
     const sessionId = String((session as { header?: { id?: unknown }; id?: unknown }).header?.id
       ?? (session as { id?: unknown }).id ?? '')
@@ -447,7 +464,18 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     // QQ 通道的会话固定跳过：那边由 napcat 自己发语音，这里再念一遍就是重复
     if (sessionId.startsWith('napcat-')) return
     const payload = ((event as { payload?: unknown }).payload ?? (event as { data?: unknown }).data ?? {}) as Record<string, unknown>
-    const message = (payload.message ?? payload) as { content?: unknown; id?: unknown }
+    const message = (payload.message ?? payload) as { content?: unknown; id?: unknown; source?: unknown }
+    // 消息来源过滤：子智能体 / 记忆工具 / 工具回灌的 assistant 消息不念
+    const rawSource = (message as { source?: unknown }).source
+    const sourceKind = typeof (rawSource as { kind?: unknown })?.kind === 'string'
+      ? String((rawSource as { kind?: string }).kind)
+      : ''
+    probe('  source=' + (sourceKind === '' ? '(none)' : sourceKind)
+      + ' raw=' + JSON.stringify(rawSource ?? null).slice(0, 80))
+    if (/subagent|agent|tool|mnemon|memory|job|task|delegate/i.test(sourceKind)) {
+      probe('  → 跳过（来源=' + sourceKind + '）')
+      return
+    }
     const content = message.content
     probe('  dataKeys=' + Object.keys(((event as { data?: object }).data) ?? {}).join(',')
       + ' msgKeys=' + Object.keys(message as object).join(',')
@@ -490,7 +518,8 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
         }
       }
     }
-    probe('  → 入队 session=' + sessionId + ' len=' + text.length)
+    probe('  → 入队 session=' + sessionId.slice(0, 12) + ' len=' + text.length
+      + ' msgId=' + (msgId === '' ? '(none)' : msgId.slice(-12)) + ' head=' + text.slice(0, 18))
     autoReadPending.set(sessionId, text)
     if (autoReadTimer === undefined) autoReadTimer = setTimeout(autoReadFlush, 900)
   }
