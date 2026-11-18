@@ -14,6 +14,8 @@ export interface Utterance {
   rate?: number
   pitch?: number
   volume?: number
+  /** 这条朗读属于哪个会话（自动朗读用；切会话语时据此丢掉旧队列） */
+  sessionId?: string
   /** 语言（如 zh-CN） */
   language?: string
   /** 指定音色名 */
@@ -81,6 +83,15 @@ export class UtteranceQueue {
 
   stats(): { length: number; seq: number; dropped: number } {
     return { length: this.items.length, seq: this.seq, dropped: this.dropped }
+  }
+
+  /** 丢掉满足条件的条目（例如切会话后旧会话还没播的句子）；返回丢了几条 */
+  dropWhere(predicate: (utterance: Utterance) => boolean): number {
+    const before = this.items.length
+    this.items = this.items.filter((item) => !predicate(item))
+    const removed = before - this.items.length
+    this.dropped += removed
+    return removed
   }
 
   clear(): void {

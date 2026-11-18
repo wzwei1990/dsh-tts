@@ -22,6 +22,8 @@ export interface SpeakOptions {
   language?: string
   voice?: string
   source?: string
+  /** 归属会话：自动朗读传当前会话 id，切会话时可据此丢弃旧队列 */
+  sessionId?: string
 }
 
 export interface SpeakResult {

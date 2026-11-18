@@ -13,6 +13,8 @@ export interface Utterance {
     rate?: number;
     pitch?: number;
     volume?: number;
+    /** 这条朗读属于哪个会话（自动朗读用；切会话语时据此丢掉旧队列） */
+    sessionId?: string;
     /** 语言（如 zh-CN） */
     language?: string;
     /** 指定音色名 */
@@ -53,6 +55,8 @@ export declare class UtteranceQueue {
         seq: number;
         dropped: number;
     };
+    /** 丢掉满足条件的条目（例如切会话后旧会话还没播的句子）；返回丢了几条 */
+    dropWhere(predicate: (utterance: Utterance) => boolean): number;
     clear(): void;
     /** 撤掉刚入队的那条（"只合成不入队"的场景用） */
     removeLast(): void;
