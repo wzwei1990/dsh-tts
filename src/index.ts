@@ -392,6 +392,12 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
    * 判定依据 = 最近一次真人 user/message 所属的会话；切换会话但不发消息时无法感知，属已知限制。
    */
   let activeHumanSession = ''
+  /**
+   * 每个会话「当前这轮由谁触发」：human = 真人发的消息；delegated = mnemon / 子智能体 / 工具注入。
+   * mnemon 会在会话里注入 user/message（source.kind=dsh-mnemon）触发一轮"记忆整理/检查点"，
+   * 那一轮的 assistant 回复 source 仍是 model，光看消息来源拦不住（2026-11-18 实测日志证据）。
+   */
+  const turnOrigin = new Map<string, 'human' | 'delegated'>()
   const autoReadPending = new Map<string, string>()
   const autoReadFlush = (): void => {
     autoReadTimer = undefined
@@ -443,10 +449,13 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
       // 用「排除法」而不是白名单：真人来源在各宿主可能叫 user / web / im …，
       // 但派活来源一定带 subagent / agent / tool / mnemon / job 这类字样。
       const delegated = /subagent|agent|tool|mnemon|job|task|delegate/i.test(kind)
+      if (sessionId !== '') turnOrigin.set(sessionId, delegated ? 'delegated' : 'human')
       if (sessionId !== '' && !delegated) {
         humanSessions.add(sessionId)
         activeHumanSession = sessionId
         probe('  → 当前聚焦会话=' + sessionId.slice(0, 24))
+      } else if (delegated) {
+        probe('  → 本轮由 ' + kind + ' 触发，后续回复不念')
       }
       return
     }
@@ -465,6 +474,11 @@ export function apply(ctx: Context, rawConfig: ConfigShape): void {
     if (sessionId.startsWith('napcat-')) return
     const payload = ((event as { payload?: unknown }).payload ?? (event as { data?: unknown }).data ?? {}) as Record<string, unknown>
     const message = (payload.message ?? payload) as { content?: unknown; id?: unknown; source?: unknown }
+    // 轮次来源过滤：这轮如果是 mnemon / 子智能体注入触发的，整轮都不念
+    if (turnOrigin.get(sessionId) === 'delegated') {
+      probe('  → 跳过（本轮由非真人触发）')
+      return
+    }
     // 消息来源过滤：子智能体 / 记忆工具 / 工具回灌的 assistant 消息不念
     const rawSource = (message as { source?: unknown }).source
     const sourceKind = typeof (rawSource as { kind?: unknown })?.kind === 'string'
